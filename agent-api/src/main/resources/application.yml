@@ -1,0 +1,35 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /fap
+    session:
+      timeout: 86400 # session超时时间为一天
+
+spring:
+  ai:
+    openai:
+      api-key: sk-****************************
+      base-url: https://api.deepseek.com   # 建议加上 /v1 路径
+      chat:
+        options:                               # 关键：多了一层 options
+          model: deepseek-v4-pro               # 官方模型名，也可用 deepseek-reasoner
+
+  data:
+    redis:
+      host: 127.0.0.1
+      database: 0
+      port: 6379
+      password: ************
+
+# logging 与 spring 平级，顶格写
+logging:
+  level:
+    org.springframework.ai: DEBUG  # 开启调试日志，观察工具调用过程
+    org.springframework.ai.openai: DEBUG
+
+app:
+  compaction: #压缩记忆提取摘要配置
+    max-messages-before-compaction: 10   # 超过 100 条触发压缩
+    keep-recent-messages: 3              # 压缩后保留最近 20 条
+
+

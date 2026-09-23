@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>First Agent 聊天</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px;
+        }
+
+        /* ============ 登录面板 ============ */
+        .login-panel {
+            width: 100%; max-width: 400px;
+            background: #fff; border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px 32px;
+            text-align: center;
+        }
+        .login-panel .logo { font-size: 48px; margin-bottom: 12px; }
+        .login-panel h2 { color: #333; font-size: 22px; margin-bottom: 8px; }
+        .login-panel p { color: #999; font-size: 13px; margin-bottom: 24px; }
+        .login-panel input {
+            width: 100%; padding: 12px 16px; font-size: 15px;
+            border: 1px solid #ddd; border-radius: 10px;
+            outline: none; margin-bottom: 16px;
+            text-align: center; letter-spacing: 2px;
+            font-family: monospace; text-transform: uppercase;
+        }
+        .login-panel input:focus { border-color: #667eea; }
+        .login-panel button {
+            width: 100%; padding: 12px; font-size: 15px;
+            background: #667eea; color: #fff; border: none;
+            border-radius: 10px; cursor: pointer; font-weight: 600;
+        }
+        .login-panel button:hover { background: #5568d3; }
+        .login-panel .hint {
+            margin-top: 16px; font-size: 12px; color: #bbb;
+            line-height: 1.8;
+        }
+        .login-panel .hint code {
+            background: #f5f5f5; padding: 2px 6px; border-radius: 4px;
+            color: #667eea;
+        }
+        .error { color: #e74c3c; font-size: 13px; margin-bottom: 12px; min-height: 18px; }
+
+        /* ============ 聊天面板 ============ */
+        .chat-container {
+            width: 100%; max-width: 900px; height: 90vh;
+            background: #fff; border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            display: none; flex-direction: column; overflow: hidden;
+        }
+        .chat-container.active { display: flex; }
+
+        .header {
+            padding: 14px 20px; border-bottom: 1px solid #eee;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .header h1 {
+            font-size: 16px; color: #333;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .header .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #2ecc71; animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+        .header .user-tag {
+            font-size: 12px; color: #667eea;
+            background: #eef1fd; padding: 3px 10px; border-radius: 12px;
+            margin-left: 8px; font-weight: normal;
+        }
+        .header .actions { display: flex; gap: 8px; }
+        .header button {
+            padding: 6px 14px; font-size: 13px;
+            background: #f5f5f5; border: 1px solid #ddd;
+            border-radius: 6px; cursor: pointer; color: #666;
+        }
+        .header button:hover { background: #eee; }
+
+        .messages { flex: 1; overflow-y: auto; padding: 20px; background: #fafbfc; }
+        .message {
+            margin-bottom: 16px; display: flex; gap: 10px;
+            animation: fadeIn .3s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message.user { flex-direction: row-reverse; }
+        .avatar {
+            width: 34px; height: 34px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; flex-shrink: 0;
+        }
+        .message.user .avatar { background: #667eea; color: #fff; }
+        .message.bot .avatar { background: #e8eaf6; color: #667eea; }
+        .bubble {
+            max-width: 70%; padding: 10px 14px; border-radius: 12px;
+            line-height: 1.6; font-size: 14.5px;
+            white-space: pre-wrap; word-wrap: break-word;
+        }
+        .message.user .bubble {
+            background: #667eea; color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+        .message.bot .bubble {
+            background: #fff; color: #333;
+            border: 1px solid #eee;
+            border-bottom-left-radius: 4px;
+        }
+        .cursor {
+            display: inline-block; width: 2px; height: 14px;
+            background: #667eea; margin-left: 2px;
+            animation: blink 1s infinite; vertical-align: middle;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+        .welcome {
+            text-align: center; color: #999;
+            padding: 40px 20px; font-size: 14px;
+        }
+        .welcome .big { font-size: 40px; margin-bottom: 12px; }
+
+        .input-area {
+            padding: 14px 20px; background: #fff;
+            border-top: 1px solid #eee;
+            display: flex; gap: 10px; align-items: flex-end;
+        }
+        .input-area textarea {
+            flex: 1; min-height: 40px; max-height: 120px;
+            padding: 10px 14px; font-size: 14.5px;
+            font-family: inherit; border: 1px solid #ddd;
+            border-radius: 10px; resize: none; outline: none;
+            line-height: 1.5;
+        }
+        .input-area textarea:focus { border-color: #667eea; }
+        .input-area button {
+            padding: 10px 22px; font-size: 14.5px;
+            background: #667eea; color: #fff;
+            border: none; border-radius: 10px;
+            cursor: pointer; font-weight: 600;
+        }
+        .input-area button:hover:not(:disabled) { background: #5568d3; }
+        .input-area button:disabled { opacity: .5; cursor: not-allowed; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+    </style>
+</head>
+<body>
+
+<!-- ============ 登录面板 ============ -->
+<div class="login-panel" id="loginPanel">
+    <div class="logo">🤖</div>
+    <h2>First Agent</h2>
+    <p>请输入邀请码进入</p>
+    <div class="error" id="loginError"></div>
+    <input id="inviteCode" placeholder="邀请码" maxlength="32" />
+    <button onclick="doLogin()">进入</button>
+    <div class="hint">
+        测试邀请码：<br>
+        <code>ALICE</code> 或 <code>BOB</code>
+    </div>
+</div>
+
+<!-- ============ 聊天面板 ============ -->
+<div class="chat-container" id="chatPanel">
+    <div class="header">
+        <h1>
+            <span class="dot"></span>
+            First Agent
+            <span class="user-tag" id="userTag"></span>
+        </h1>
+        <div class="actions">
+            <button onclick="clearChat()">清空对话</button>
+            <button onclick="doLogout()">退出</button>
+        </div>
+    </div>
+
+    <div class="messages" id="messages">
+        <div class="welcome">
+            <div class="big">👋</div>
+            <div>你好，我是 First Agent</div>
+            <div style="margin-top:6px;font-size:12px;color:#bbb;">
+                试试：帮我算 123+456 / 记住我住在合肥 / 推荐一个周末去处
+            </div>
+        </div>
+    </div>
+
+    <div class="input-area">
+        <textarea id="input" rows="1" placeholder="输入消息...（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button id="sendBtn" onclick="send()">发送</button>
+    </div>
+</div>
+
+<script>
+    (function() {
+        'use strict';
+
+        const loginPanel = document.getElementById('loginPanel');
+        const chatPanel = document.getElementById('chatPanel');
+        const loginError = document.getElementById('loginError');
+        const inviteCodeEl = document.getElementById('inviteCode');
+        const userTag = document.getElementById('userTag');
+        const messagesEl = document.getElementById('messages');
+        const inputEl = document.getElementById('input');
+        const sendBtn = document.getElementById('sendBtn');
+
+        let currentUser = null;
+        let isStreaming = false;
+
+        // ============ 启动时检查登录状态 ============
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const res = await fetch('/fap/auth/me');
+                const data = await res.json();
+                if (data.userId) {
+                    currentUser = data.userId;
+                    showChat();
+                } else {
+                    showLogin();
+                }
+            } catch (e) {
+                showLogin();
+            }
+        });
+
+        // ============ 登录 ============
+        window.doLogin = async function() {
+            const code = inviteCodeEl.value.trim().toUpperCase();
+            if (!code) {
+                loginError.textContent = '请输入邀请码';
+                return;
+            }
+            loginError.textContent = '';
+
+            try {
+                const res = await fetch('/fap/auth/login?code=' + encodeURIComponent(code), {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                if (data.success) {
+                    currentUser = data.userId;
+                    showChat();
+                } else {
+                    loginError.textContent = data.message || '邀请码无效';
+                }
+            } catch (e) {
+                loginError.textContent = '登录失败：' + e.message;
+            }
+        };
+
+        // ============ 退出 ============
+        window.doLogout = async function() {
+            await fetch('/fap/auth/logout', { method: 'POST' });
+            currentUser = null;
+            messagesEl.innerHTML = `
+      <div class="welcome">
+        <div class="big">👋</div>
+        <div>已退出，请重新输入邀请码</div>
+      </div>`;
+            inviteCodeEl.value = '';
+            showLogin();
+        };
+
+        function showLogin() {
+            loginPanel.style.display = 'block';
+            chatPanel.classList.remove('active');
+            inviteCodeEl.focus();
+        }
+
+        function showChat() {
+            loginPanel.style.display = 'none';
+            chatPanel.classList.add('active');
+            userTag.textContent = currentUser;
+            inputEl.focus();
+        }
+
+        // ============ 发送消息 ============
+        window.send = function() {
+            if (isStreaming) return;
+            const text = inputEl.value.trim();
+            if (!text) return;
+
+            inputEl.value = '';
+            inputEl.style.height = 'auto';
+
+            appendMessage(text, 'user');
+
+            const bubble = appendMessage('', 'bot');
+            const cursor = document.createElement('span');
+            cursor.className = 'cursor';
+            bubble.appendChild(cursor);
+
+            isStreaming = true;
+            sendBtn.disabled = true;
+
+            const url = '/fap/chat/streamR?message=' + encodeURIComponent(text);
+            const es = new EventSource(url);
+
+            let fullText = '';
+            let receivedAny = false;
+
+            es.onmessage = (e) => {
+                receivedAny = true;
+                fullText += e.data;
+                bubble.textContent = fullText;
+                bubble.appendChild(cursor);
+                scrollToBottom();
+            };
+
+            es.onerror = () => {
+                es.close();
+                cursor.remove();
+                if (!receivedAny) {
+                    bubble.textContent = '⚠️ 连接失败，请检查后端是否启动或是否已登录';
+                }
+                finishStream();
+            };
+        };
+
+        function finishStream() {
+            isStreaming = false;
+            sendBtn.disabled = false;
+            inputEl.focus();
+        }
+
+        // ============ 清空对话 ============
+        window.clearChat = async function() {
+            if (isStreaming) return;
+            if (!confirm('确定要清空当前对话吗？')) return;
+
+            try {
+                await fetch('/fap/chat/clear', { method: 'POST' });
+                messagesEl.innerHTML = `
+        <div class="welcome">
+          <div class="big">👋</div>
+          <div>对话已清空</div>
+        </div>`;
+            } catch (e) {
+                alert('清空失败：' + e.message);
+            }
+        };
+
+        // ============ 工具函数 ============
+        function appendMessage(text, role) {
+            const w = messagesEl.querySelector('.welcome');
+            if (w) w.remove();
+
+            const wrap = document.createElement('div');
+            wrap.className = 'message ' + role;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            avatar.textContent = role === 'user' ? '我' : '🤖';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            bubble.textContent = text;
+
+            wrap.appendChild(avatar);
+            wrap.appendChild(bubble);
+            messagesEl.appendChild(wrap);
+            scrollToBottom();
+            return bubble;
+        }
+
+        function scrollToBottom() {
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        // ============ 事件绑定 ============
+        inviteCodeEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') doLogin();
+        });
+
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                send();
+            }
+        });
+
+        inputEl.addEventListener('input', () => {
+            inputEl.style.height = 'auto';
+            inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+        });
+    })();
+</script>
+</body>
+</html>
