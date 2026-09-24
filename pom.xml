@@ -23,17 +23,18 @@
     4.api：依赖 agent-core（传递依赖 tools、memory）
     -->
     <modules>
-        <module>agent-core</module>
         <module>agent-tools</module>
         <module>agent-memory</module>
+        <module>agent-rag</module>       <!-- RAG 在 core 之前 -->
+        <module>agent-core</module>
         <module>agent-api</module>
     </modules>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!-- 使用 M6 里程碑版本 -->
         <spring-ai.version>1.1.8</spring-ai.version>
     </properties>
 
@@ -72,6 +73,11 @@
             <dependency>
                 <groupId>org.example</groupId>
                 <artifactId>agent-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.example</groupId>
+                <artifactId>agent-rag</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

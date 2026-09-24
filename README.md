@@ -6,15 +6,15 @@
 
 ## 一、项目技术栈
 
-| 类别 | 技术 | 版本 |
-|------|------|:---:|
-| 语言 | Java | 21 |
-| 框架 | Spring Boot | 3.5.15 |
-| AI 框架 | Spring AI | 1.0.9 |
-| 缓存 | Redis | 7.x |
-| 前端 | 原生 HTML + JS | - |
+| 类别 | 技术 |       版本        |
+|------|------|:---------------:|
+| 语言 | Java |       21        |
+| 框架 | Spring Boot |     3.5.15      |
+| AI 框架 | Spring AI |      1.1.8      |
+| 缓存 | Redis |       7.x       |
+| 前端 | 原生 HTML + JS |        -        |
 | 模型 | DeepSeek | deepseek-v4-pro |
-| 构建 | Maven | 3.9+ |
+| 构建 | Maven |      3.9+       |
 
 > ⚠️ 版本请以 `pom.xml` 中 `spring-boot-starter-parent` 的实际值为准。
 

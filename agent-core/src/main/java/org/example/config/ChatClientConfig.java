@@ -8,6 +8,7 @@ import org.example.memory.LongTermMemoryService;
 import org.example.preference.UserPreferenceService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -54,7 +55,8 @@ public class ChatClientConfig {
             @Qualifier("redisChatMemory") ChatMemory chatMemory,
             CompactingChatMemoryAdvisor compactingAdvisor,
             UserPreferenceService preferenceService,
-            LongTermMemoryService longTermMemoryService) {
+            LongTermMemoryService longTermMemoryService,
+            QuestionAnswerAdvisor questionAnswerAdvisor) {
 
         return ChatClient.builder(chatModel)
                 .defaultAdvisors(
@@ -66,6 +68,8 @@ public class ChatClientConfig {
                         new PreferenceAdvisor(preferenceService),
                         // ④ 长期记忆检索：关键词匹配 LTM（order=200）
                         new MemoryRetrievalAdvisor(longTermMemoryService),
+                        // ↓ 新增：RAG 检索 Advisor
+                        questionAnswerAdvisor,
                         // ⑤ 工具日志
                         new ToolLoggingAdvisor()
                 )
