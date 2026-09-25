@@ -13,8 +13,6 @@
             display: flex; align-items: center; justify-content: center;
             padding: 20px;
         }
-
-        /* ============ 登录面板 ============ */
         .login-panel {
             width: 100%; max-width: 400px;
             background: #fff; border-radius: 16px;
@@ -49,7 +47,6 @@
         }
         .error { color: #e74c3c; font-size: 13px; margin-bottom: 12px; min-height: 18px; }
 
-        /* ============ 聊天面板 ============ */
         .chat-container {
             width: 100%; max-width: 900px; height: 90vh;
             background: #fff; border-radius: 16px;
@@ -104,11 +101,30 @@
         .bubble {
             max-width: 70%; padding: 10px 14px; border-radius: 12px;
             line-height: 1.6; font-size: 14.5px;
-            white-space: pre-wrap; word-wrap: break-word;
+            word-wrap: break-word;
+        }
+        .bubble a {
+            color: #667eea;
+            text-decoration: underline;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .bubble a:hover {
+            color: #5568d3;
+        }
+        .bubble strong {
+            font-weight: 700;
+            color: #333;
+        }
+        .bubble h3 {
+            font-size: 15px;
+            margin: 8px 0 6px;
+            color: #333;
         }
         .message.user .bubble {
             background: #667eea; color: #fff;
             border-bottom-right-radius: 4px;
+            white-space: pre-wrap;
         }
         .message.bot .bubble {
             background: #fff; color: #333;
@@ -155,7 +171,6 @@
 </head>
 <body>
 
-<!-- ============ 登录面板 ============ -->
 <div class="login-panel" id="loginPanel">
     <div class="logo">🤖</div>
     <h2>First Agent</h2>
@@ -169,7 +184,6 @@
     </div>
 </div>
 
-<!-- ============ 聊天面板 ============ -->
 <div class="chat-container" id="chatPanel">
     <div class="header">
         <h1>
@@ -203,6 +217,58 @@
     (function() {
         'use strict';
 
+        // ============================================================
+        // 轻量 Markdown 渲染（不依赖任何外部库）
+        // 支持：HTML转义、链接、粗体、标题、换行
+        // ============================================================
+        function renderMarkdown(text) {
+            if (!text) return '';
+
+            // ① 转义 HTML 特殊字符（防 XSS）
+            let html = text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+
+            // ② 转义后，URL 里的 & 变成了 &amp; —— 还原回来
+            //    （否则链接里的参数会显示成 &amp;）
+            html = html.replace(/href="([^"]*)&amp;/g, 'href="$1&');
+
+            // ③ 代码块 ```...``` → <pre><code>
+            html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+
+            // ④ 行内代码 `xxx` → <code>
+            html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+            // ⑤ 粗体 **text** → <strong>
+            html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+
+            // ⑥ Markdown 链接 [文字](链接) → <a>
+            html = html.replace(
+                /\[([^\]]+)\]\(([^)]+)\)/g,
+                '<a href="$2" target="_blank" rel="noopener">$1</a>'
+            );
+
+            // ⑦ 三级标题 ### xxx → <h3>
+            html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+
+            // ⑧ 二级标题 ## xxx → <h3>（合并到 h3）
+            html = html.replace(/^##\s+(.+)$/gm, '<h3>$1</h3>');
+
+            // ⑨ 一级标题 # xxx → <h3>
+            html = html.replace(/^#\s+(.+)$/gm, '<h3>$1</h3>');
+
+            // ⑩ 换行 → <br>
+            html = html.replace(/\n/g, '<br>');
+
+            return html;
+        }
+
+        // ============================================================
+        // 元素引用
+        // ============================================================
         const loginPanel = document.getElementById('loginPanel');
         const chatPanel = document.getElementById('chatPanel');
         const loginError = document.getElementById('loginError');
@@ -310,7 +376,8 @@
             es.onmessage = (e) => {
                 receivedAny = true;
                 fullText += e.data;
-                bubble.textContent = fullText;
+                // 用自定义 renderMarkdown 渲染（不依赖外部库）
+                bubble.innerHTML = renderMarkdown(fullText);
                 bubble.appendChild(cursor);
                 scrollToBottom();
             };

@@ -1,11 +1,13 @@
 package org.example.rag;
 
+import org.example.rag.config.RagProperties;
 import org.example.rag.service.DocumentIngestService;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.FileSystemResource;
 
@@ -22,10 +24,13 @@ class RagSmokeTest {
     @Autowired
     private VectorStore vectorStore;
 
+    @Autowired
+    private RagProperties ragProperties;
+
     @Test
     void testIngestAndSearch() {
         // ① 入库
-        String filePath = "D:/zhangzhao/畅信工作文档/项目管理/瑞丽体检/瑞丽市总医院智慧体检系统及设备采购-招标文件（更正后）.docx";
+        String filePath = ragProperties.getFilesDir()+"家庭医生有偿签约服务协议书.docx";
 
         int chunks = ingestService.ingestWithTika(
                 new FileSystemResource(filePath)
@@ -35,9 +40,9 @@ class RagSmokeTest {
 
         // ② 检索——先用具体词、不要阈值
         SearchRequest request = SearchRequest.builder()
-                .query("智慧体检系统采购")       // ← 改成文档里出现的词
-                .topK(3)
-                // .similarityThreshold(0.5)     // ← 注释掉
+                .query("签约家庭医生时要注意什么")       // ← 改成文档里出现的词
+                .topK(ragProperties.getTopK())
+                .similarityThreshold(ragProperties.getSimilarityThreshold())     // ← 注释掉
                 .build();
 
         List<Document> results = vectorStore.similaritySearch(request);

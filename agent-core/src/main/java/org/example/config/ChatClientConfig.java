@@ -6,11 +6,14 @@ import org.example.advisor.PreferenceAdvisor;
 import org.example.advisor.ToolLoggingAdvisor;
 import org.example.memory.LongTermMemoryService;
 import org.example.preference.UserPreferenceService;
+import org.example.rag.advisor.RagAdvisor;
+import org.example.rag.config.RagProperties;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -56,21 +59,22 @@ public class ChatClientConfig {
             CompactingChatMemoryAdvisor compactingAdvisor,
             UserPreferenceService preferenceService,
             LongTermMemoryService longTermMemoryService,
-            QuestionAnswerAdvisor questionAnswerAdvisor) {
+            VectorStore vectorStore,
+            RagProperties ragProperties) {          // ← 新增参数
 
         return ChatClient.builder(chatModel)
                 .defaultAdvisors(
-                        // ① 会话记忆：读写 CHAT
+                        // ① 会话记忆
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
-                        // ② 压缩：CHAT 超阈值时压缩旧消息（order=50）
+                        // ② 压缩
                         compactingAdvisor,
-                        // ③ 用户偏好：注入 USER_PREF（order=100）
+                        // ③ 用户偏好
                         new PreferenceAdvisor(preferenceService),
-                        // ④ 长期记忆检索：关键词匹配 LTM（order=200）
+                        // ④ RAG 检索（topK、阈值从配置读）
+                        new RagAdvisor(vectorStore, ragProperties),   // ← 改这里
+                        // ⑤ 长期记忆检索
                         new MemoryRetrievalAdvisor(longTermMemoryService),
-                        // ↓ 新增：RAG 检索 Advisor
-                        questionAnswerAdvisor,
-                        // ⑤ 工具日志
+                        // ⑥ 工具日志
                         new ToolLoggingAdvisor()
                 )
                 .build();

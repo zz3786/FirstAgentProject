@@ -1,19 +1,16 @@
+# ===== Maven =====
 target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
-.kotlin
 
-### IntelliJ IDEA ###
-.idea/modules.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/libraries/
+# ===== IntelliJ IDEA（整个目录忽略）=====
+.idea/
 *.iws
 *.iml
 *.ipr
 
-### Eclipse ###
+# ===== Eclipse =====
 .apt_generated
 .classpath
 .factorypath
@@ -22,7 +19,7 @@ target/
 .springBeans
 .sts4-cache
 
-### NetBeans ###
+# ===== NetBeans =====
 /nbproject/private/
 /nbbuild/
 /dist/
@@ -32,8 +29,24 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-### VS Code ###
+# ===== VS Code =====
 .vscode/
 
-### Mac OS ###
+# ===== Mac OS =====
 .DS_Store
+
+# ===== Kotlin =====
+.kotlin/
+
+# ===== 日志 =====
+*.log
+logs/
+
+# ===== 本地配置（含密钥/本机路径，坚决不提交）=====
+application-local.yml
+application-dev.yml
+*.local.yml
+
+# ===== 数据/临时文件 =====
+data/
+*.tmp

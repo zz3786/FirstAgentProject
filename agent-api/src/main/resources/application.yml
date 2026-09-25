@@ -17,7 +17,7 @@ spring:
     openai:
       # ========== Chat 模型（DeepSeek）==========
       chat:
-        base-url: https://api.deepseek.com/v1
+        base-url: https://api.deepseek.com
         api-key: ${DEEPSEEK_API_KEY}
         options:
           model: deepseek-v4-pro
@@ -58,6 +58,12 @@ logging:
 
 
 app:
+  rag:
+    file-storage-dir: D:/DevelopmentTool/qdrant/rag-files/   # → fileStorageDir
+    files-dir: D:/download/testVectorData/               # → getFilesDir
+    top-k: 1                                                # → topK
+    similarity-threshold: 0.5                                # → similarityThreshold
+
   compaction:
     max-messages-before-compaction: 10
     keep-recent-messages: 3

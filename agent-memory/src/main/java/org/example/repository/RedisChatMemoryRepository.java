@@ -1,6 +1,7 @@
 package org.example.repository;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -8,12 +9,14 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * 最近记忆,不是指时间上的最近 是指顺序上最近
  */
+@Slf4j
 @Repository
 public class RedisChatMemoryRepository implements ChatMemoryRepository {
 
@@ -60,14 +63,19 @@ public class RedisChatMemoryRepository implements ChatMemoryRepository {
         if (jsons == null || jsons.isEmpty()) {
             return List.of();
         }
-        return jsons.stream().map(json -> {
-            try {
-                MessageDto dto = objectMapper.readValue(json, MessageDto.class);
-                return dto.toMessage();
-            } catch (Exception e) {
-                throw new RuntimeException("反序列化消息失败: " + json, e);
-            }
-        }).collect(Collectors.toList());
+        return jsons.stream()
+                .filter(json -> json != null && !json.isBlank())   // ← 过滤空值
+                .map(json -> {
+                    try {
+                        MessageDto dto = objectMapper.readValue(json, MessageDto.class);
+                        return dto.toMessage();
+                    } catch (Exception e) {
+                        log.error("反序列化消息失败, 原始内容: [{}]", json, e);   // ← 打印原始内容
+                        return null;   // 返回 null，后面过滤掉
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
     @Override

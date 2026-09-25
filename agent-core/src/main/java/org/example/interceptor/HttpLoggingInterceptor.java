@@ -1,4 +1,4 @@
-package org.example.rag.config;
+package org.example.interceptor;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
