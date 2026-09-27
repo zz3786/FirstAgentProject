@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.rag.mapper.DocumentFingerprintMapper">
+
+    <resultMap id="BaseResultMap" type="org.example.rag.entity.DocumentFingerprint">
+        <id     column="id"            property="id"/>
+        <result column="file_path"     property="filePath"/>
+        <result column="file_hash"     property="fileHash"/>
+        <result column="doc_id"        property="docId"/>
+        <result column="source"        property="source"/>
+        <result column="file_size"     property="fileSize"/>
+        <result column="last_modified" property="lastModified"/>
+        <result column="indexed_at"    property="indexedAt"/>
+    </resultMap>
+
+    <select id="findByFilePath" resultMap="BaseResultMap">
+        SELECT * FROM rag_documents WHERE file_path = #{filePath}
+    </select>
+
+    <select id="findAll" resultMap="BaseResultMap">
+        SELECT * FROM rag_documents
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO rag_documents
+            (file_path, file_hash, doc_id, source, file_size, last_modified, indexed_at)
+        VALUES
+            (#{filePath}, #{fileHash}, #{docId}, #{source},
+             #{fileSize}, #{lastModified}, #{indexedAt})
+    </insert>
+
+    <update id="update">
+        UPDATE rag_documents
+        SET file_hash = #{fileHash},
+            doc_id = #{docId},
+            source = #{source},
+            file_size = #{fileSize},
+            last_modified = #{lastModified},
+            indexed_at = #{indexedAt}
+        WHERE file_path = #{filePath}
+    </update>
+
+    <delete id="deleteByDocId">
+        DELETE FROM rag_documents WHERE doc_id = #{docId}
+    </delete>
+
+    <delete id="deleteByFilePath">
+        DELETE FROM rag_documents WHERE file_path = #{filePath}
+    </delete>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM rag_documents
+    </select>
+
+</mapper>

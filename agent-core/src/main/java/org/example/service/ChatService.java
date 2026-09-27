@@ -3,6 +3,7 @@ package org.example.service;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.example.cache.service.SemanticCacheService;
 import org.example.tools.SafeToolCallback;
 import org.example.tools.*;
 import org.springframework.ai.chat.client.ChatClient;
@@ -53,6 +54,8 @@ public class ChatService {
      * 用于 syncChat / streamChat 这类"简单、一次性"调用。
      */
     private final ChatClient chatClientWithoutMemory;
+
+    private final SemanticCacheService semanticCacheService;
 
     // ==================== 工具回调（运行时构建） ====================
 
@@ -105,9 +108,10 @@ public class ChatService {
      */
     public ChatService(
             @Qualifier("redisChatClient") ChatClient chatClientWithMemory,
-            @Qualifier("plainChatClient") ChatClient chatClientWithoutMemory) {
+            @Qualifier("plainChatClient") ChatClient chatClientWithoutMemory, SemanticCacheService semanticCacheService) {
         this.chatClientWithMemory = chatClientWithMemory;
         this.chatClientWithoutMemory = chatClientWithoutMemory;
+        this.semanticCacheService = semanticCacheService;
     }
 
     // ==================== 初始化 ====================
@@ -205,6 +209,20 @@ public class ChatService {
      * @return 文本流；出错时返回一段带 ⚠️ 的友好提示
      */
     public Flux<String> streamChatWithMemory(String userInput, String conversationId) {
+        long startTime = System.currentTimeMillis();
+
+        // ★ ① 先查缓存
+        String cachedAnswer = semanticCacheService.lookup(userInput, conversationId);
+        if (cachedAnswer != null) {
+            log.info("⏱️ [缓存命中] query=[{}] 耗时={}ms",
+                    truncate(userInput, 30),
+                    System.currentTimeMillis() - startTime);
+            return Flux.just(cachedAnswer);
+        }
+
+        // ② 未命中——走正常流程
+        StringBuilder fullAnswer = new StringBuilder();
+        long[] firstTokenTime = {0};
         return chatClientWithMemory.prompt()
                 .user(userInput)
                 // 指定会话 ID：让 MessageChatMemoryAdvisor 知道读写哪个 CHAT
@@ -213,6 +231,37 @@ public class ChatService {
                 .toolCallbacks(wrappedCallbacks)
                 .stream()
                 .content()
+                .doOnNext(chunk -> {
+                    fullAnswer.append(chunk);      // ← 累积答案
+                    // ★ 首次 token 时间
+                    if (firstTokenTime[0] == 0) {
+                        firstTokenTime[0] = System.currentTimeMillis();
+                        long ttft = firstTokenTime[0] - startTime;
+                        log.info("⏱️ [首Token] query=[{}] TTFT={}ms",
+                                truncate(userInput, 30), ttft);
+                    }
+                })
+                .doOnComplete(() -> {
+                    long totalCost = System.currentTimeMillis() - startTime;
+                    long ttft = firstTokenTime[0] == 0 ? totalCost : firstTokenTime[0] - startTime;
+                    log.info("⏱️ [完整响应] query=[{}] 首Token={}ms 总耗时={}ms",
+                            truncate(userInput, 30), ttft, totalCost);
+
+                    if (totalCost > 10000) {
+                        log.warn("⚠️ 慢响应告警(streamChatWithMemory): query=[{}] 耗时={}ms", truncate(userInput, 30), totalCost);
+                    }
+
+                    // ★★★ ③ 存缓存——在这里！★★★
+                    String answer = fullAnswer.toString();
+                    if (!answer.isBlank()) {
+                        semanticCacheService.store(userInput, answer, conversationId);
+                    }
+                })
+                .doOnError(e -> {
+                    long cost = System.currentTimeMillis() - startTime;
+                    log.error("⏱️ [异常] query=[{}] 耗时={}ms",
+                            truncate(userInput, 30), cost, e);
+                })
                 // 流式调用的异常兜底：把技术异常转成用户能看懂的文本
                 .onErrorResume(e -> {
                     log.error("流式调用异常", e);
@@ -220,6 +269,12 @@ public class ChatService {
                     // 通过 SSE 推一条带 ⚠️ 前缀的提示，前端直接渲染
                     return Flux.just("⚠️ " + friendly);
                 });
+
+
+    }
+
+    private String truncate(String s, int max) {
+        return s == null ? "" : (s.length() > max ? s.substring(0, max) + "..." : s);
     }
 
     /**

@@ -2,17 +2,22 @@ package org.example.rag.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.rag.config.RagProperties;
+import org.example.rag.entity.RagChunk;
+import org.example.rag.mapper.RagChunkMapper;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StopWatch;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,12 +25,12 @@ import java.util.UUID;
  * RAG 文档入库服务
  * <p>
  * 完整链路：
- * ① 复制原文件到可访问目录（用于后续点击来源链接打开）
+ * ① 复制原文件到可访问目录
  * ② 解析（Tika / PDFBox）
  * ③ 切片
  * ④ 注入 metadata（doc_id、source、file_path）
- * ⑤ 向量化（调阿里云）
- * ⑥ 存入 Qdrant
+ * ⑤ 向量化 → 存 Qdrant
+ * ⑥ 存 MySQL（关键词检索用）
  */
 @Slf4j
 @Service
@@ -44,20 +49,31 @@ public class DocumentIngestService {
     private final VectorStore vectorStore;
     private final DocumentParseService parseService;
     private final RagProperties ragProperties;
+    private final RagChunkMapper ragChunkMapper;
 
     public DocumentIngestService(VectorStore vectorStore,
-                                 DocumentParseService parseService, RagProperties ragProperties) {
+                                 DocumentParseService parseService,
+                                 RagProperties ragProperties,
+                                 RagChunkMapper ragChunkMapper) {
         this.vectorStore = vectorStore;
         this.parseService = parseService;
         this.ragProperties = ragProperties;
+        this.ragChunkMapper = ragChunkMapper;
     }
 
     // ==================== 入库 PDF ====================
 
     /**
-     * 入库 PDF
+     * 入库 PDF 带重试
+     *
+     * @return DocInfo（含 docId、原文件名、存储文件名）
      */
-    public int ingestPdf(Resource resource) {
+    @Retryable(
+            retryFor = { Exception.class },
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 1000, multiplier = 2)
+    )
+    public DocInfo ingestPdf(Resource resource) {
         // ① 复制原文件 + 生成 docId
         DocInfo docInfo = saveFile(resource);
 
@@ -71,46 +87,75 @@ public class DocumentIngestService {
         // ④ 注入 metadata
         injectMetadata(chunks, docInfo);
 
-        // ⑤ 入库
+        // ⑤ 存向量库
         vectorStore.add(chunks);
+
+        // ⑥ 存 MySQL（★ 补上——之前漏了）
+        saveToMysql(chunks, docInfo);
+
         log.info("PDF 入库完成，docId={}, source={}, 切片数={}",
                 docInfo.docId(), docInfo.originalName(), chunks.size());
 
-        return chunks.size();
+        return docInfo;   // ★ 返回 DocInfo
     }
 
     // ==================== 入库其他格式（Word 等） ====================
 
     /**
-     * 入库 Word / PPT / HTML 等（Tika 万能解析）
+     * 入库 Word / PPT / HTML 等（Tika 万能解析）  带重试
+     *
+     * @return DocInfo
      */
-    public int ingestWithTika(Resource resource) {
-        // ① 复制原文件 + 生成 docId
+    @Retryable(
+            retryFor = { Exception.class },
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 1000, multiplier = 2)
+    )
+    public DocInfo ingestWithTika(Resource resource) {
+        StopWatch sw = new StopWatch("文档入库");
+        String originalName = resource.getFilename();
+
+        // ① 复制文件
+        sw.start("复制文件");
         DocInfo docInfo = saveFile(resource);
+        sw.stop();
 
         // ② 解析
+        sw.start("解析");
         List<Document> documents = parseService.parseWithTika(resource);
+        sw.stop();
 
         // ③ 切片
+        sw.start("切片");
         List<Document> chunks = split(documents);
-        log.info("Tika 切片完成，chunk 数: {}", chunks.size());
+        sw.stop();
 
         // ④ 注入 metadata
+        sw.start("注入metadata");
         injectMetadata(chunks, docInfo);
+        sw.stop();
 
-        // ⑤ 入库
+        // ⑤ 向量化 + 存 Qdrant
+        sw.start("向量化+Qdrant");
         vectorStore.add(chunks);
-        log.info("Tika 入库完成，docId={}, source={}, 切片数={}",
-                docInfo.docId(), docInfo.originalName(), chunks.size());
+        sw.stop();
 
-        return chunks.size();
+        // ⑥ 存 MySQL
+        sw.start("存MySQL");
+        saveToMysql(chunks, docInfo);
+        sw.stop();
+
+        log.info("文档入库完成 file=[{}] chunk数={} 总耗时={}ms\n{}",
+                originalName,
+                chunks.size(),
+                sw.getTotalTimeMillis(),
+                sw.prettyPrint());
+
+        return docInfo;
     }
 
     // ==================== 内部方法 ====================
 
-    /**
-     * 切片
-     */
     private List<Document> split(List<Document> documents) {
         TokenTextSplitter splitter = new TokenTextSplitter(
                 CHUNK_SIZE,
@@ -132,15 +177,14 @@ public class DocumentIngestService {
             originalName = "unnamed-file";
         }
 
-        // 提取扩展名（如 .docx / .pdf）
+        // 提取扩展名（含点）
         String ext = "";
         int dotIdx = originalName.lastIndexOf('.');
         if (dotIdx > 0) {
-            ext = originalName.substring(dotIdx);   // 含点：.docx
+            ext = originalName.substring(dotIdx);
         }
 
         String docId = UUID.randomUUID().toString();
-        // ★ 存储文件名 = {docId}{扩展名} —— 不带原始文件名
         String storedName = docId + ext;
 
         try {
@@ -177,7 +221,26 @@ public class DocumentIngestService {
     }
 
     /**
-     * 文件信息（内部记录）
+     * 存 MySQL（供关键词检索）
      */
-    private record DocInfo(String docId, String originalName, String storedName) {}
+    private void saveToMysql(List<Document> chunks, DocInfo docInfo) {
+        List<RagChunk> entities = new ArrayList<>();
+        for (int i = 0; i < chunks.size(); i++) {
+            Document chunk = chunks.get(i);
+            RagChunk entity = new RagChunk();
+            entity.setDocId(docInfo.docId());
+            entity.setChunkIndex(i);
+            entity.setSource(docInfo.originalName());
+            entity.setContent(chunk.getText());
+            entity.setFilePath(docInfo.storedName());
+            entities.add(entity);
+        }
+        ragChunkMapper.batchInsert(entities);
+        log.info("MySQL 同步完成，{} 条", entities.size());
+    }
+
+    /**
+     * 文件信息 —— ★ 改成 public，供增量更新使用
+     */
+    public record DocInfo(String docId, String originalName, String storedName) {}
 }

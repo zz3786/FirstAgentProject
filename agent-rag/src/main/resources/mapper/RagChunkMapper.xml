@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.rag.mapper.RagChunkMapper">
+
+    <resultMap id="BaseResultMap" type="org.example.rag.entity.RagChunk">
+        <id     column="id"          property="id"/>
+        <result column="doc_id"      property="docId"/>
+        <result column="chunk_index" property="chunkIndex"/>
+        <result column="source"      property="source"/>
+        <result column="content"     property="content"/>
+        <result column="file_path"   property="filePath"/>
+        <result column="created_at"  property="createdAt"/>
+        <!-- score 不是表字段，查询时动态填充 -->
+        <result column="score"       property="score"/>
+    </resultMap>
+
+    <!-- 批量插入 -->
+    <insert id="batchInsert">
+        INSERT INTO rag_chunks (doc_id, chunk_index, source, content, file_path)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.docId}, #{item.chunkIndex}, #{item.source},
+            #{item.content}, #{item.filePath})
+        </foreach>
+    </insert>
+
+<!--    &lt;!&ndash; 全文检索（MySQL ngram 分词） &ndash;&gt;-->
+<!--    <select id="fulltextSearch" resultMap="BaseResultMap">-->
+<!--        SELECT id, doc_id, chunk_index, source, content, file_path, created_at,-->
+<!--            MATCH(content) AGAINST(#{query} IN NATURAL LANGUAGE MODE) AS score-->
+<!--        FROM rag_chunks-->
+<!--        WHERE MATCH(content) AGAINST(#{query} IN NATURAL LANGUAGE MODE)-->
+<!--        ORDER BY score DESC-->
+<!--            LIMIT #{topK}-->
+<!--    </select>-->
+
+    <!-- RagChunkMapper.xml  优化关键词检索，以弥补MySQL ngram分词粒度太粗导致的误召回问题 -->
+    <select id="fulltextSearch" resultMap="BaseResultMap">
+        SELECT id, doc_id, chunk_index, source, content, file_path,
+            MATCH(content) AGAINST(#{query} IN BOOLEAN MODE) AS score
+        FROM rag_chunks
+        WHERE MATCH(content) AGAINST(#{query} IN BOOLEAN MODE)
+        ORDER BY score DESC
+            LIMIT #{topK}
+    </select>
+
+    <!-- 按 docId 删除 -->
+    <delete id="deleteByDocId">
+        DELETE FROM rag_chunks WHERE doc_id = #{docId}
+    </delete>
+
+    <!-- 统计 -->
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM rag_chunks
+    </select>
+
+</mapper>

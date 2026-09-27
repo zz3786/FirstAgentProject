@@ -30,13 +30,14 @@ class RagSmokeTest {
     @Test
     void testIngestAndSearch() {
         // ① 入库
-        String filePath = ragProperties.getFilesDir()+"家庭医生有偿签约服务协议书.docx";
+        String filePath = ragProperties.getListenFilesDir()+"家庭医生有偿签约服务协议书.docx";
 
-        int chunks = ingestService.ingestWithTika(
-                new FileSystemResource(filePath)
-        );
-        assertTrue(chunks > 0, "应至少产生 1 个切片");
-        System.out.println("入库切片数: " + chunks);
+        // ★ 返回值从 int 改成 DocInfo
+        DocumentIngestService.DocInfo info =
+                ingestService.ingestWithTika(new FileSystemResource(filePath));
+
+        System.out.println("入库完成：docId=" + info.docId()
+                + ", source=" + info.originalName());
 
         // ② 检索——先用具体词、不要阈值
         SearchRequest request = SearchRequest.builder()

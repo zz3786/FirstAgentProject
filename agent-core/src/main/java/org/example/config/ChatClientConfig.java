@@ -8,6 +8,7 @@ import org.example.memory.LongTermMemoryService;
 import org.example.preference.UserPreferenceService;
 import org.example.rag.advisor.RagAdvisor;
 import org.example.rag.config.RagProperties;
+import org.example.rag.service.HybridSearchService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
@@ -59,8 +60,7 @@ public class ChatClientConfig {
             CompactingChatMemoryAdvisor compactingAdvisor,
             UserPreferenceService preferenceService,
             LongTermMemoryService longTermMemoryService,
-            VectorStore vectorStore,
-            RagProperties ragProperties) {          // ← 新增参数
+            HybridSearchService hybridSearchService ) {
 
         return ChatClient.builder(chatModel)
                 .defaultAdvisors(
@@ -71,7 +71,7 @@ public class ChatClientConfig {
                         // ③ 用户偏好
                         new PreferenceAdvisor(preferenceService),
                         // ④ RAG 检索（topK、阈值从配置读）
-                        new RagAdvisor(vectorStore, ragProperties),   // ← 改这里
+                        new RagAdvisor(hybridSearchService),   // ← 改这里
                         // ⑤ 长期记忆检索
                         new MemoryRetrievalAdvisor(longTermMemoryService),
                         // ⑥ 工具日志

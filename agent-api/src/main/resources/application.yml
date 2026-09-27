@@ -41,6 +41,12 @@ spring:
         use-tls: false
         check-compatibility: false         # ← 别忘加这行
 
+  datasource:
+    url: "jdbc:mysql://${MYSQL_HOST}:3306/rag?useUnicode=true&autoReconnect=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai"
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
   data:
     redis:
       host: 127.0.0.1
@@ -48,21 +54,50 @@ spring:
       port: 6379
       password: hfcx_redis_123456
 
+# ↓ mybatis 顶格，与 spring 平级
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: org.example.rag.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
 logging:
   level:
     org.springframework.web.client: TRACE          # ← DEBUG 改成 TRACE
     org.springframework.web.client.DefaultRestClient: TRACE
     org.springframework.http.client: TRACE
     org.springframework.ai.openai: DEBUG
-
-
+    org.mybatis: DEBUG
+    org.mybatis.spring: DEBUG
+    org.apache.ibatis: DEBUG
 
 app:
   rag:
     file-storage-dir: D:/DevelopmentTool/qdrant/rag-files/   # → fileStorageDir
-    files-dir: D:/download/testVectorData/               # → getFilesDir
-    top-k: 1                                                # → topK
+    #增量更新配置
+    listen-files-dir: D:/download/testVectorData            # 监听目录
+    scan-interval-ms: 60000                # 扫描间隔 60 秒
+    incremental-enabled: true              # 是否启用增量更新
+    top-k: 2                                                 # → topK
     similarity-threshold: 0.5                                # → similarityThreshold
+    rrf-k: 60
+    recall-multiplier: 2
+    # ↓ 新增：TEI 远程重排序
+    rerank:
+      api-url: http://localhost:8081/rerank    # ★ 端口是 8081
+      timeout-seconds: 60
+      min-score: 0.3    # ★ 阈值
+  #缓存模块配置
+  cache:
+    semantic:
+      enabled: true
+      index-name: semantic-cache-index
+      key-prefix: "semantic-cache:"
+      similarity-threshold: 0.85
+      ttl-hours: 24
+      max-cache-per-user: 200
+
 
   compaction:
     max-messages-before-compaction: 10

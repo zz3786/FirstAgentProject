@@ -2,14 +2,18 @@ package org.example;
 
 
 import lombok.extern.slf4j.Slf4j;
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.retry.annotation.EnableRetry;
 
 @Slf4j
 @SpringBootApplication
+@EnableRetry
+@MapperScan("org.example.rag.mapper")   // ← 加这个
 public class FirstAgentProjectApplication {
 
     public static void main(String[] args) {

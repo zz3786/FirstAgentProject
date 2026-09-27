@@ -24,6 +24,7 @@
     -->
     <modules>
         <module>agent-tools</module>
+        <module>agent-cache</module>
         <module>agent-memory</module>
         <module>agent-rag</module>       <!-- RAG 在 core 之前 -->
         <module>agent-core</module>
@@ -78,6 +79,11 @@
             <dependency>
                 <groupId>org.example</groupId>
                 <artifactId>agent-rag</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.example</groupId>
+                <artifactId>agent-cache</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
