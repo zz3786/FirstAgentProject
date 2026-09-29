@@ -76,9 +76,9 @@ app:
   rag:
     file-storage-dir: D:/DevelopmentTool/qdrant/rag-files/   # → fileStorageDir
     #增量更新配置
-    listen-files-dir: D:/download/testVectorData            # 监听目录
-    scan-interval-ms: 60000                # 扫描间隔 60 秒
-    incremental-enabled: true              # 是否启用增量更新
+    listen-files-dir: D:/download/testVectorData             # 监听目录
+    scan-interval-ms: 60000                                  # 扫描间隔 60 秒
+    incremental-enabled: true                                # 是否启用增量更新
     top-k: 2                                                 # → topK
     similarity-threshold: 0.5                                # → similarityThreshold
     rrf-k: 60
@@ -88,6 +88,21 @@ app:
       api-url: http://localhost:8081/rerank    # ★ 端口是 8081
       timeout-seconds: 60
       min-score: 0.3    # ★ 阈值
+    #BM25权重配比
+    fusion-strategy: weighted    # 或 rrf
+    vector-weight: 0.7
+    keyword-weight: 0.3
+
+  # ★ D45 新增：OCR 配置
+  ocr:
+    enabled: true                          # 关闭后跳过所有 OCR，图片入库会返回空
+    tessdata-path: ./tessdata/             # 语言包目录
+    language: chi_sim+eng                  # 中文简体 + 英文
+    timeout-seconds: 30                    # 单张图 OCR 超时
+    min-text-length: 5                     # 少于 5 字视为无有效文本
+    page-seg-mode: 3                       # PSM 3 = 全自动
+
+
   #缓存模块配置
   cache:
     semantic:

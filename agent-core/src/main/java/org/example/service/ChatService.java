@@ -4,6 +4,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.example.cache.service.SemanticCacheService;
+import org.example.rag.model.RagFilter;
 import org.example.tools.SafeToolCallback;
 import org.example.tools.*;
 import org.springframework.ai.chat.client.ChatClient;
@@ -186,6 +187,11 @@ public class ChatService {
                 .content();     // 返回 Flux<String>
     }
 
+    /** 兼容旧调用——无过滤 */
+    public Flux<String> streamChatWithMemory(String userInput, String conversationId) {
+        return streamChatWithMemory(userInput, conversationId, null);
+    }
+
     /**
      * 流式调用 + 会话记忆 + 工具调用（主入口）
      * <p>
@@ -208,7 +214,7 @@ public class ChatService {
      * @param conversationId 会话 ID（=userId，用于隔离 CHAT）
      * @return 文本流；出错时返回一段带 ⚠️ 的友好提示
      */
-    public Flux<String> streamChatWithMemory(String userInput, String conversationId) {
+    public Flux<String> streamChatWithMemory(String userInput, String conversationId, RagFilter ragFilter) {
         long startTime = System.currentTimeMillis();
 
         // ★ ① 先查缓存
@@ -226,7 +232,11 @@ public class ChatService {
         return chatClientWithMemory.prompt()
                 .user(userInput)
                 // 指定会话 ID：让 MessageChatMemoryAdvisor 知道读写哪个 CHAT
-                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
+                .advisors(
+                        a -> a
+                                .param(ChatMemory.CONVERSATION_ID, conversationId)
+                                .param("rag_filter", ragFilter)          // ★ 传入过滤条件
+                )
                 // 传入包装后的工具（本类在 @PostConstruct 里构建好）
                 .toolCallbacks(wrappedCallbacks)
                 .stream()

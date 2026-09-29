@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -48,70 +49,43 @@ public class DocumentIngestService {
 
     private final VectorStore vectorStore;
     private final DocumentParseService parseService;
+    private final TableExtractService tableExtractService;
     private final RagProperties ragProperties;
     private final RagChunkMapper ragChunkMapper;
 
     public DocumentIngestService(VectorStore vectorStore,
-                                 DocumentParseService parseService,
+                                 DocumentParseService parseService, TableExtractService tableExtractService,
                                  RagProperties ragProperties,
                                  RagChunkMapper ragChunkMapper) {
         this.vectorStore = vectorStore;
         this.parseService = parseService;
+        this.tableExtractService = tableExtractService;
         this.ragProperties = ragProperties;
         this.ragChunkMapper = ragChunkMapper;
     }
 
-    // ==================== 入库 PDF ====================
-
-    /**
-     * 入库 PDF 带重试
-     *
-     * @return DocInfo（含 docId、原文件名、存储文件名）
-     */
-    @Retryable(
-            retryFor = { Exception.class },
-            maxAttempts = 3,
-            backoff = @Backoff(delay = 1000, multiplier = 2)
-    )
-    public DocInfo ingestPdf(Resource resource) {
-        // ① 复制原文件 + 生成 docId
-        DocInfo docInfo = saveFile(resource);
-
-        // ② 解析
-        List<Document> documents = parseService.parsePdf(resource);
-
-        // ③ 切片
-        List<Document> chunks = split(documents);
-        log.info("PDF 切片完成，chunk 数: {}", chunks.size());
-
-        // ④ 注入 metadata
-        injectMetadata(chunks, docInfo);
-
-        // ⑤ 存向量库
-        vectorStore.add(chunks);
-
-        // ⑥ 存 MySQL（★ 补上——之前漏了）
-        saveToMysql(chunks, docInfo);
-
-        log.info("PDF 入库完成，docId={}, source={}, 切片数={}",
-                docInfo.docId(), docInfo.originalName(), chunks.size());
-
-        return docInfo;   // ★ 返回 DocInfo
-    }
 
     // ==================== 入库其他格式（Word 等） ====================
 
     /**
-     * 入库 Word / PPT / HTML 等（Tika 万能解析）  带重试
+     * 文档入库主入口（自动分派）
+     * <p>
+     * 按文件类型分派到对应的解析器：
+     * - Excel / CSV  → TableExtractService（已按行分块）
+     * - 图片         → ImageDocumentReader + OcrService
+     * - PDF          → PagePdfDocumentReader（含扫描件 OCR 补丁）
+     * - 其他         → Tika 万能解析
+     * <p>
+     * 6 段流程：复制 → 解析 → 切片 → 注入 metadata → 向量化 → 存 MySQL
      *
-     * @return DocInfo
+     * @return 入库文档信息（docId / 原始文件名 / 存储名）
      */
     @Retryable(
             retryFor = { Exception.class },
             maxAttempts = 3,
             backoff = @Backoff(delay = 1000, multiplier = 2)
     )
-    public DocInfo ingestWithTika(Resource resource) {
+    public DocInfo ingest(Resource resource) {
         StopWatch sw = new StopWatch("文档入库");
         String originalName = resource.getFilename();
 
@@ -120,17 +94,17 @@ public class DocumentIngestService {
         DocInfo docInfo = saveFile(resource);
         sw.stop();
 
-        // ② 解析
+        // ② 解析（内部自动分派：表格 → TableExtractService，其他 → Tika）
         sw.start("解析");
-        List<Document> documents = parseService.parseWithTika(resource);
+        DocumentParseService.ParseResult parsed = parseService.parse(resource);
         sw.stop();
 
-        // ③ 切片
+        // ③ 切片（表格路径已自带 chunk，不重复切）
         sw.start("切片");
-        List<Document> chunks = split(documents);
+        List<Document> chunks = parsed.alreadyChunked() ? parsed.documents() : split(parsed.documents());
         sw.stop();
 
-        // ④ 注入 metadata
+        // ④ 注入 metadata（幂等，两条路径统一入口）
         sw.start("注入metadata");
         injectMetadata(chunks, docInfo);
         sw.stop();
@@ -145,11 +119,7 @@ public class DocumentIngestService {
         saveToMysql(chunks, docInfo);
         sw.stop();
 
-        log.info("文档入库完成 file=[{}] chunk数={} 总耗时={}ms\n{}",
-                originalName,
-                chunks.size(),
-                sw.getTotalTimeMillis(),
-                sw.prettyPrint());
+        log.info("文档入库完成 file=[{}] chunk数={} 总耗时={}ms\n{}",originalName, chunks.size(), sw.getTotalTimeMillis(), sw.prettyPrint());
 
         return docInfo;
     }
@@ -206,33 +176,129 @@ public class DocumentIngestService {
         return new DocInfo(docId, originalName, storedName);
     }
 
+
     /**
-     * 给每个 chunk 注入 metadata
+     * 注入元数据（幂等）
+     * <p>
+     * <b>D46 新增</b>：业务过滤维度（department / year / content_type）
+     * <p>
+     * <b>这些字段从哪来</b>：
+     * - 从文件路径推断（如 D:/testVectorData/财务部/2024制度.docx）
+     * - 或从解析器产出（如 TableExtractService 已填 content_type=table）
+     * - 或从外部配置（如按目录映射部门）
+     * <p>
+     * <b>为什么在 injectMetadata 里填而不在解析器里填</b>：
+     * 这是"业务维度的统一补全"——所有路径都要有这些字段。
+     * 解析器只管"文件怎么变文本"，不该感知业务分类。
      */
     private void injectMetadata(List<Document> chunks, DocInfo docInfo) {
+        // ★ 从文件路径推断业务维度（示例规则，按你实际目录结构调整）
+        String filePath = docInfo.storedName() != null ? docInfo.storedName() : "";
+        String department = inferDepartment(docInfo.originalName());
+        Integer year = inferYear(docInfo.originalName());
+
         for (int i = 0; i < chunks.size(); i++) {
             Document chunk = chunks.get(i);
-            chunk.getMetadata().put("doc_id", docInfo.docId());
-            chunk.getMetadata().put("source", docInfo.originalName());
-            chunk.getMetadata().put("file_path", docInfo.storedName());
-            chunk.getMetadata().put("chunk_index", i);
-            chunk.getMetadata().put("total_chunks", chunks.size());
+            Map<String, Object> meta = chunk.getMetadata();
+
+            // 通用文档标识
+            meta.putIfAbsent("doc_id", docInfo.docId());
+            meta.putIfAbsent("source", docInfo.originalName());
+            meta.putIfAbsent("file_path", docInfo.storedName());
+            meta.putIfAbsent("chunk_index", i);
+            meta.putIfAbsent("total_chunks", chunks.size());
+
+            // ★ D46：业务过滤维度
+            if (department != null) {
+                meta.putIfAbsent("department", department);
+            }
+            if (year != null) {
+                meta.putIfAbsent("year", year);
+            }
+            // content_type 由各解析器自填（table/image/pdf_ocr），此处兜底为 "text"
+            meta.putIfAbsent("content_type", "text");
         }
     }
 
     /**
+     * 从文件名/路径推断部门
+     * <p>
+     * <b>实现方式取决于你的文件组织约定</b>。
+     * 示例假设：D:/testVectorData/{部门}/{文件名}.docx
+     * <p>
+     * 生产环境建议改为"在入库接口传入 department 参数"或"从数据库配置表读取"，
+     * 比路径推断可靠得多。
+     */
+    private String inferDepartment(String fileName) {
+        if (fileName == null) {
+            return null;
+        }
+        // 示例：文件名含"财务"→财务部，"人事/HR"→人事部
+        if (fileName.contains("财务")) {
+            return "财务部";
+        }
+        if (fileName.contains("人事") || fileName.contains("HR")) {
+            return "人事部";
+        }
+        if (fileName.contains("研发") || fileName.contains("技术")) {
+            return "研发部";
+        }
+        if (fileName.contains("市场") || fileName.contains("营销")) {
+            return "市场部";
+        }
+        return null;   // 推断不出就不填——不编造
+    }
+
+    /**
+     * 从文件名推断年份
+     * <p>
+     * 示例：文件名含 "2024" → year=2024。
+     * 生产环境建议从文件属性或入库参数取，别靠正则猜。
+     */
+    private Integer inferYear(String fileName) {
+        if (fileName == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(20\\d{2})")
+                .matcher(fileName);
+        return m.find() ? Integer.parseInt(m.group(1)) : null;
+    }
+
+
+
+
+    /**
      * 存 MySQL（供关键词检索）
+     * <p>
+     * ★ D46：同步写入过滤维度，供 fulltextSearchWithFilter 使用。
+     * metadata 由 injectMetadata 和解析器共同填充，这里读出即可。
      */
     private void saveToMysql(List<Document> chunks, DocInfo docInfo) {
         List<RagChunk> entities = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             Document chunk = chunks.get(i);
+            Map<String, Object> meta = chunk.getMetadata();
+
             RagChunk entity = new RagChunk();
             entity.setDocId(docInfo.docId());
             entity.setChunkIndex(i);
             entity.setSource(docInfo.originalName());
             entity.setContent(chunk.getText());
             entity.setFilePath(docInfo.storedName());
+
+            // ★ D46 新增：从 metadata 读出过滤维度
+            entity.setDepartment((String) meta.get("department"));
+            entity.setContentType((String) meta.get("content_type"));
+
+            // year 在 metadata 里是 Integer，但要防御性处理
+            Object yearObj = meta.get("year");
+            if (yearObj instanceof Number n) {
+                entity.setYear(n.intValue());
+            } else if (yearObj instanceof String s && !s.isBlank()) {
+                try { entity.setYear(Integer.parseInt(s)); } catch (NumberFormatException ignore) {}
+            }
+
             entities.add(entity);
         }
         ragChunkMapper.batchInsert(entities);

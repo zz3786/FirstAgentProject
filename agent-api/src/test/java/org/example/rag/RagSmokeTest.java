@@ -34,7 +34,7 @@ class RagSmokeTest {
 
         // ★ 返回值从 int 改成 DocInfo
         DocumentIngestService.DocInfo info =
-                ingestService.ingestWithTika(new FileSystemResource(filePath));
+                ingestService.ingest(new FileSystemResource(filePath));
 
         System.out.println("入库完成：docId=" + info.docId()
                 + ", source=" + info.originalName());

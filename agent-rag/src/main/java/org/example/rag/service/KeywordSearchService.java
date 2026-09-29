@@ -3,6 +3,7 @@ package org.example.rag.service;
 import lombok.extern.slf4j.Slf4j;
 import org.example.rag.entity.RagChunk;
 import org.example.rag.mapper.RagChunkMapper;
+import org.example.rag.model.RagFilter;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
 
@@ -23,16 +24,30 @@ public class KeywordSearchService {
     }
 
     /**
-     * 关键词检索 —— 返回 Spring AI Document
+     * 关键词检索（带过滤）
+     * <p>
+     * ★ D46：过滤条件通过 MyBatis 动态 SQL 实现
      */
-    public List<Document> search(String query, int topK) {
+    public List<Document> search(String query, int topK, RagFilter filter) {
         try {
-            List<RagChunk> chunks = ragChunkMapper.fulltextSearch(buildBooleanQuery(query), topK);
+            String booleanQuery = buildBooleanQuery(query);
+            // 把过滤维度展开为 SQL 可用的参数
+            List<RagChunk> chunks = ragChunkMapper.fulltextSearchWithFilter(
+                    booleanQuery, topK,
+                    filter == null ? null : filter.departments(),
+                    filter == null ? null : filter.yearFrom(),
+                    filter == null ? null : filter.yearTo(),
+                    filter == null ? null : filter.docTypes()
+            );
             return chunks.stream().map(this::toDocument).toList();
         } catch (Exception e) {
             log.error("关键词检索失败, query={}", query, e);
             return List.of();
         }
+    }
+
+    public List<Document> search(String query, int topK) {
+        return search(query, topK, null);
     }
 
     //优化关键词检索，以弥补MySQL ngram分词粒度太粗导致的误召回问题
@@ -53,6 +68,20 @@ public class KeywordSearchService {
         metadata.put("file_path", chunk.getFilePath());
         metadata.put("score", chunk.getScore());
         metadata.put("retrieval_type", "keyword");
+
+        // ★ D46 新增：过滤维度也要带上
+        //   融合阶段 buildKey 用 doc_id + chunk_index
+        //   但展示 / 调试时能看出这是哪个部门的
+        if (chunk.getDepartment() != null) {
+            metadata.put("department", chunk.getDepartment());
+        }
+        if (chunk.getYear() != null) {
+            metadata.put("year", chunk.getYear());
+        }
+        if (chunk.getContentType() != null) {
+            metadata.put("content_type", chunk.getContentType());
+        }
+
         return new Document(chunk.getContent(), metadata);
     }
 }

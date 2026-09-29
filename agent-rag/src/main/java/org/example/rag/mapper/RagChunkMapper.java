@@ -32,4 +32,12 @@ public interface RagChunkMapper {
      * 统计总数
      */
     long count();
+
+    List<RagChunk> fulltextSearchWithFilter(
+            @Param("query") String query,
+            @Param("topK") int topK,
+            @Param("departments") List<String> departments,
+            @Param("yearFrom") Integer yearFrom,
+            @Param("yearTo") Integer yearTo,
+            @Param("docTypes") List<String> docTypes);
 }

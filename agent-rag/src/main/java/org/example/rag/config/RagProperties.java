@@ -55,6 +55,29 @@ public class RagProperties {
         private double minScore = 0.3;
     }
 
+    /**
+     * 融合策略
+     * <p>
+     * - "weighted"：归一化加权融合（可调 w_vec / w_kw）
+     * - "rrf"：Reciprocal Rank Fusion（等权、只看排名）
+     */
+    private String fusionStrategy = "weighted";
+
+    /**
+     * 向量检索权重（0~1）
+     * <p>
+     * 与 keywordWeight 之和应为 1.0
+     * 建议范围：0.5 ~ 0.8
+     */
+    private double vectorWeight = 0.7;
+
+    /**
+     * 关键词检索权重（0~1）
+     * <p>
+     * 建议范围：0.2 ~ 0.5
+     */
+    private double keywordWeight = 0.3;
+
 
 
 }

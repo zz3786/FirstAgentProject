@@ -1,6 +1,7 @@
 package org.example.rag.config;
 
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -15,6 +16,7 @@ import org.springframework.context.annotation.Configuration;
  * 手动定义仅用于覆盖默认行为（如自定义 collection 名称）。
  *
  */
+@Slf4j
 @Configuration
 public class RagConfig {
 
@@ -36,4 +38,5 @@ public class RagConfig {
                 .searchRequest(searchRequest)
                 .build();
     }
+
 }

@@ -173,7 +173,16 @@ public class IncrementalUpdateService {
                 || name.endsWith(".docx")
                 || name.endsWith(".doc")
                 || name.endsWith(".txt")
-                || name.endsWith(".md");
+                || name.endsWith(".md")
+                || name.endsWith(".xlsx")   // D44 表格新增
+                || name.endsWith(".xls")
+                || name.endsWith(".csv")
+                || name.endsWith(".jpg")    // ★ D45 图片新增
+                || name.endsWith(".jpeg")
+                || name.endsWith(".png")
+                || name.endsWith(".bmp")
+                || name.endsWith(".tiff")
+                || name.endsWith(".tif");
     }
 
     /**
@@ -193,8 +202,7 @@ public class IncrementalUpdateService {
             String hash = FileHashUtil.sha256(file);
             log.info("入库文件: {}", filePath);
 
-            DocumentIngestService.DocInfo docInfo =
-                    ingestService.ingestWithTika(new FileSystemResource(file));
+            DocumentIngestService.DocInfo docInfo = ingestService.ingest(new FileSystemResource(file));
 
             DocumentFingerprint fp = new DocumentFingerprint();
             fp.setFilePath(filePath);

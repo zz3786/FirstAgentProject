@@ -31,4 +31,14 @@ public class RagChunk {
     private Double score;
 
     private LocalDateTime createdAt;
+
+    // ★ D46 新增：过滤维度
+    /** 部门 */
+    private String department;
+
+    /** 年份（整数，用于范围过滤） */
+    private Integer year;
+
+    /** 内容类型：text / table / image / pdf_ocr */
+    private String contentType;
 }

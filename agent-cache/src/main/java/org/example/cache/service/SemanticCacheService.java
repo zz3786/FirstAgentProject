@@ -42,9 +42,15 @@ public class SemanticCacheService {
      * @return 命中的答案；未命中返回 null
      */
     public String lookup(String query, String tenantId) {
-        if (!properties.isEnabled()) return null;
-        if (query == null || query.isBlank()) return null;
-        if (tenantId == null) tenantId = "default";
+        if (!properties.isEnabled()) {
+            return null;
+        }
+        if (query == null || query.isBlank()) {
+            return null;
+        }
+        if (tenantId == null) {
+            tenantId = "default";
+        }
 
         try {
             SearchRequest request = SearchRequest.builder()
@@ -73,7 +79,9 @@ public class SemanticCacheService {
             Document hit = results.get(0);
             String answer = hit.getText();
             Object cachedQuestion = hit.getMetadata().get("question");
-            if (answer == null) return null;
+            if (answer == null) {
+                return null;
+            }
 
             log.info("✅ 语义缓存命中: tenant={}, query=[{}] ≈ 缓存问题=[{}]",
                     tenantId, truncate(query),
@@ -90,10 +98,18 @@ public class SemanticCacheService {
      * 存缓存（带租户）
      */
     public void store(String query, String answer, String tenantId) {
-        if (!properties.isEnabled()) return;
-        if (query == null || query.isBlank()) return;
-        if (answer == null || answer.isBlank()) return;
-        if (tenantId == null) tenantId = "default";
+        if (!properties.isEnabled()) {
+            return;
+        }
+        if (query == null || query.isBlank()) {
+            return;
+        }
+        if (answer == null || answer.isBlank()) {
+            return;
+        }
+        if (tenantId == null) {
+            tenantId = "default";
+        }
 
         try {
             Document doc = new Document(answer, Map.of(
@@ -134,7 +150,9 @@ public class SemanticCacheService {
      * - 租户删除
      */
     public void clearByTenant(String tenantId) {
-        if (tenantId == null) tenantId = "default";
+        if (tenantId == null) {
+            tenantId = "default";
+        }
         try {
             cacheVectorStore.delete("tenant_id == '" + tenantId + "'");
             log.info("已清除租户 {} 的语义缓存", tenantId);
@@ -144,7 +162,9 @@ public class SemanticCacheService {
     }
 
     private String truncate(String s) {
-        if (s == null) return "";
+        if (s == null) {
+            return "";
+        }
         return s.length() > 30 ? s.substring(0, 30) + "..." : s;
     }
 }

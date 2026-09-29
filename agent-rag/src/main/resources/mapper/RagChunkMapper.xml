@@ -13,15 +13,21 @@
         <result column="created_at"  property="createdAt"/>
         <!-- score 不是表字段，查询时动态填充 -->
         <result column="score"       property="score"/>
+        <!-- ★ D46 新增 -->
+        <result property="department"  column="department"/>
+        <result property="year"        column="year"/>
+        <result property="contentType" column="content_type"/>
     </resultMap>
 
-    <!-- 批量插入 -->
+    <!-- ==================== 批量插入（入库时用） ==================== -->
     <insert id="batchInsert">
-        INSERT INTO rag_chunks (doc_id, chunk_index, source, content, file_path)
+        INSERT INTO rag_chunks
+        (doc_id, chunk_index, source, content, file_path,
+        department, year, content_type, created_at)
         VALUES
-        <foreach collection="list" item="item" separator=",">
-            (#{item.docId}, #{item.chunkIndex}, #{item.source},
-            #{item.content}, #{item.filePath})
+        <foreach collection="list" item="c" separator=",">
+            (#{c.docId}, #{c.chunkIndex}, #{c.source}, #{c.content}, #{c.filePath},
+            #{c.department}, #{c.year}, #{c.contentType}, NOW())
         </foreach>
     </insert>
 
@@ -35,15 +41,88 @@
 <!--            LIMIT #{topK}-->
 <!--    </select>-->
 
-    <!-- RagChunkMapper.xml  优化关键词检索，以弥补MySQL ngram分词粒度太粗导致的误召回问题 -->
+
+    <!-- ==================== 关键词检索（无过滤） ==================== -->
+    <!--
+        全文检索：用 MySQL 的 MATCH AGAINST（ngram parser 支持中文）
+        score = 相关度得分，用于后续 RRF/加权融合
+        RagChunkMapper.xml  优化关键词检索，以弥补MySQL ngram分词粒度太粗导致的误召回问题
+    -->
     <select id="fulltextSearch" resultMap="BaseResultMap">
-        SELECT id, doc_id, chunk_index, source, content, file_path,
+        SELECT
+            id, doc_id, chunk_index, source, content, file_path,
+            department, year, content_type, created_at,
             MATCH(content) AGAINST(#{query} IN BOOLEAN MODE) AS score
         FROM rag_chunks
         WHERE MATCH(content) AGAINST(#{query} IN BOOLEAN MODE)
         ORDER BY score DESC
-            LIMIT #{topK}
+        LIMIT #{topK}
     </select>
+
+
+
+    <!-- ==================== 关键词检索（带过滤）★ D46 新增 ==================== -->
+    <!--
+        ★ 关键设计说明：
+
+        ① 为什么用 <if> 而不是 <choose>：
+           过滤条件是"可选的、可组合的"——调用方可能只传部门，
+           也可能同时传部门+年份+类型。用 <if> 拼接最自然。
+
+        ② 为什么 departments / docTypes 用 <foreach> 而不是 <if>：
+           IN 子句的语法要求参数列表展开成 (?, ?, ?)。
+           用 <foreach> 动态生成占位符。
+
+        ③ 为什么 yearFrom/yearTo 分开判断：
+           允许只传下界、只传上界、或两边都传。
+           联合写成 BETWEEN 会丢失灵活性。
+
+        ④ MATCH AGAINST 必须在 WHERE 里而非 SELECT 里：
+           MySQL 要求全文检索出现在 WHERE 子句，否则报错。
+           SELECT 里的那一份只是为了取 score 字段。
+
+        ⑤ ORDER BY score DESC：
+           相关度降序。当过滤条件命中很多文档时，
+           相关度最高的排前面，便于后续 TEI 重排采样。
+    -->
+    <select id="fulltextSearchWithFilter" resultMap="BaseResultMap">
+        SELECT
+        id, doc_id, chunk_index, source, content, file_path,
+        department, year, content_type, created_at,
+        MATCH(content) AGAINST(#{query} IN BOOLEAN MODE) AS score
+        FROM rag_chunks
+        WHERE MATCH(content) AGAINST(#{query} IN BOOLEAN MODE)
+
+        <!-- 部门过滤（IN 多值） -->
+        <if test="departments != null and departments.size() > 0">
+            AND department IN
+            <foreach collection="departments" item="d" open="(" close=")" separator=",">
+                #{d}
+            </foreach>
+        </if>
+
+        <!-- 年份下界 -->
+        <if test="yearFrom != null">
+            AND year &gt;= #{yearFrom}
+        </if>
+
+        <!-- 年份上界 -->
+        <if test="yearTo != null">
+            AND year &lt;= #{yearTo}
+        </if>
+
+        <!-- 内容类型过滤（IN 多值） -->
+        <if test="docTypes != null and docTypes.size() > 0">
+            AND content_type IN
+            <foreach collection="docTypes" item="t" open="(" close=")" separator=",">
+                #{t}
+            </foreach>
+        </if>
+
+        ORDER BY score DESC
+        LIMIT #{topK}
+    </select>
+
 
     <!-- 按 docId 删除 -->
     <delete id="deleteByDocId">

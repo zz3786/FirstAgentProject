@@ -1,6 +1,7 @@
 package org.example.rag.advisor;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.rag.model.RagFilter;
 import org.example.rag.service.HybridSearchService;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -44,8 +45,27 @@ public class RagAdvisor implements CallAdvisor, StreamAdvisor {
         return chain.nextStream(enrich(request));
     }
 
+
+    /**
+     * 从上下文中提取过滤条件并执行检索
+     * <p>
+     * <b>过滤条件从哪来</b>：
+     * 调用方通过 advisor param 传入，如：
+     * <pre>
+     * chatClient.prompt()
+     *     .user(question)
+     *     .advisors(a -> a
+     *         .param(ChatMemory.CONVERSATION_ID, cid)
+     *         .param("rag_filter", new RagFilter(List.of("研发部"), 2024, null, null, null)))
+     *     .stream().content();
+     * </pre>
+     * <p>
+     * <b>为什么用 context 而非方法参数</b>：
+     * Advisor 的 enrich 方法签名是固定的，无法加参数。
+     * ChatClientRequest.context() 是 Spring AI 提供的"跨 Advisor 传参通道"，
+     * 和 MessageChatMemoryAdvisor 读 CONVERSATION_ID 是同一个机制。
+     */
     private ChatClientRequest enrich(ChatClientRequest request) {
-        // 1. 提取用户问题
         String query = request.prompt().getInstructions().stream()
                 .filter(m -> "USER".equals(m.getMessageType().name()))
                 .map(Message::getText)
@@ -55,20 +75,19 @@ public class RagAdvisor implements CallAdvisor, StreamAdvisor {
             return request;
         }
 
-        // 2. 混合检索 + TEI 精排
-        List<Document> docs = hybridSearchService.search(query);
+        // ★ 从 context 取过滤条件
+        RagFilter filter = (RagFilter) request.context().get("rag_filter");
+
+        // ★ 带过滤检索
+        List<Document> docs = hybridSearchService.search(query, filter);
         if (docs.isEmpty()) {
-            log.info("RAG 无检索结果，跳过注入");
+            log.info("RAG 无检索结果（过滤条件={}），跳过注入", filter);
             return request;
         }
 
-        // 3. 构造带编号的参考资料
         String context = buildContext(docs);
-
-        // 4. 构造 Prompt（核心）
         String injection = buildRagPrompt(context);
-
-        log.info("RAG 注入 {} 条资料", docs.size());
+        log.info("RAG 注入 {} 条资料（过滤={}）", docs.size(), filter);
 
         Prompt newPrompt = request.prompt().augmentSystemMessage(injection);
         return request.mutate().prompt(newPrompt).build();

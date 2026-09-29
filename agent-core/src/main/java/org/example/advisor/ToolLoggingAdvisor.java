@@ -38,8 +38,9 @@ public class ToolLoggingAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public int getOrder() {
-        // 越小越先执行。用 HIGHEST_PRECEDENCE + 100 保证比较靠前，但还留出空间
-        return Ordered.HIGHEST_PRECEDENCE + 100;
+        // 最内层：请求日志看到所有 Advisor 注入后的最终 prompt
+        //          响应日志看到模型原始 tool_call / 文本
+        return Ordered.LOWEST_PRECEDENCE;
     }
 
     // ==================== 同步 ====================
