@@ -1,0 +1,42 @@
+[
+  {
+    "query": "签约家庭医生后能享受哪些服务",
+    "expectedDocKeywords": ["基本公共卫生服务", "优先就诊", "转诊绿色通道"]
+  },
+  {
+    "query": "家庭医生签约需要什么条件",
+    "expectedDocKeywords": ["签约条件", "居民", "自愿"]
+  },
+  {
+    "query": "签约费用是多少",
+    "expectedDocKeywords": ["签约费用", "有偿", "收费标准"]
+  },
+  {
+    "query": "怎么办理家庭医生签约",
+    "expectedDocKeywords": ["签约流程", "办理", "社区卫生服务中心"]
+  },
+  {
+    "query": "签约后能转诊到大医院吗",
+    "expectedDocKeywords": ["转诊", "上级医院", "绿色通道"]
+  },
+  {
+    "query": "哪些人可以签约家庭医生",
+    "expectedDocKeywords": ["签约对象", "常住居民", "老年人"]
+  },
+  {
+    "query": "家庭医生签约的有效期是多久",
+    "expectedDocKeywords": ["有效期", "一年", "续约"]
+  },
+  {
+    "query": "签约后如何解约",
+    "expectedDocKeywords": ["解约", "退出", "协议终止"]
+  },
+  {
+    "query": "家庭医生能上门服务吗",
+    "expectedDocKeywords": ["上门服务", "居家", "行动不便"]
+  },
+  {
+    "query": "签约协议包含哪些条款",
+    "expectedDocKeywords": ["协议条款", "权利义务", "服务内容"]
+  }
+]

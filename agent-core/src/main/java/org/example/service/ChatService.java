@@ -7,6 +7,7 @@ import org.example.cache.service.SemanticCacheService;
 import org.example.rag.model.RagFilter;
 import org.example.tools.SafeToolCallback;
 import org.example.tools.*;
+import org.example.utils.SessionUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.tool.ToolCallback;
@@ -214,11 +215,22 @@ public class ChatService {
      * @param conversationId 会话 ID（=userId，用于隔离 CHAT）
      * @return 文本流；出错时返回一段带 ⚠️ 的友好提示
      */
-    public Flux<String> streamChatWithMemory(String userInput, String conversationId, RagFilter ragFilter) {
+    public Flux<String> streamChatWithMemory(String userInput,
+                                             String conversationId,
+                                             RagFilter ragFilter) {
         long startTime = System.currentTimeMillis();
 
-        // ★ ① 先查缓存
-        String cachedAnswer = semanticCacheService.lookup(userInput, conversationId);
+        // ★ 归一化 filter
+        RagFilter effectiveFilter = (ragFilter == null) ? RagFilter.empty() : ragFilter;
+
+        // ★ 提取纯 userId 作为租户 ID
+        String tenantId = extractUserId(conversationId);
+
+        // ★ 生成 cache key 后缀（一次生成，下面 lookup 和 store 都用同一个）
+        String cacheKeySuffix = effectiveFilter.cacheKeySuffix();
+
+        // ★ ① 查缓存（传 tenantId + suffix）
+        String cachedAnswer = semanticCacheService.lookup(userInput, tenantId, cacheKeySuffix);
         if (cachedAnswer != null) {
             log.info("⏱️ [缓存命中] query=[{}] 耗时={}ms",
                     truncate(userInput, 30),
@@ -231,56 +243,51 @@ public class ChatService {
         long[] firstTokenTime = {0};
         return chatClientWithMemory.prompt()
                 .user(userInput)
-                // 指定会话 ID：让 MessageChatMemoryAdvisor 知道读写哪个 CHAT
-                .advisors(
-                        a -> a
-                                .param(ChatMemory.CONVERSATION_ID, conversationId)
-                                .param("rag_filter", ragFilter)          // ★ 传入过滤条件
-                )
-                // 传入包装后的工具（本类在 @PostConstruct 里构建好）
+                .advisors(a -> {
+                    a.param(ChatMemory.CONVERSATION_ID, conversationId);
+                    if (!effectiveFilter.isEmpty()) {
+                        a.param("rag_filter", effectiveFilter);
+                    }
+                })
                 .toolCallbacks(wrappedCallbacks)
                 .stream()
                 .content()
                 .doOnNext(chunk -> {
-                    fullAnswer.append(chunk);      // ← 累积答案
-                    // ★ 首次 token 时间
+                    fullAnswer.append(chunk);
                     if (firstTokenTime[0] == 0) {
                         firstTokenTime[0] = System.currentTimeMillis();
-                        long ttft = firstTokenTime[0] - startTime;
                         log.info("⏱️ [首Token] query=[{}] TTFT={}ms",
-                                truncate(userInput, 30), ttft);
+                                truncate(userInput, 30), firstTokenTime[0] - startTime);
                     }
                 })
                 .doOnComplete(() -> {
                     long totalCost = System.currentTimeMillis() - startTime;
-                    long ttft = firstTokenTime[0] == 0 ? totalCost : firstTokenTime[0] - startTime;
-                    log.info("⏱️ [完整响应] query=[{}] 首Token={}ms 总耗时={}ms",
-                            truncate(userInput, 30), ttft, totalCost);
+                    log.info("⏱️ [完整响应] query=[{}] 总耗时={}ms",
+                            truncate(userInput, 30), totalCost);
 
-                    if (totalCost > 10000) {
-                        log.warn("⚠️ 慢响应告警(streamChatWithMemory): query=[{}] 耗时={}ms", truncate(userInput, 30), totalCost);
-                    }
-
-                    // ★★★ ③ 存缓存——在这里！★★★
+                    // ★ ③ 存缓存（传同一个 suffix）
                     String answer = fullAnswer.toString();
                     if (!answer.isBlank()) {
-                        semanticCacheService.store(userInput, answer, conversationId);
+                        semanticCacheService.store(userInput, answer, tenantId, cacheKeySuffix);
                     }
                 })
-                .doOnError(e -> {
-                    long cost = System.currentTimeMillis() - startTime;
-                    log.error("⏱️ [异常] query=[{}] 耗时={}ms",
-                            truncate(userInput, 30), cost, e);
-                })
-                // 流式调用的异常兜底：把技术异常转成用户能看懂的文本
+                .doOnError(e -> log.error("⏱️ [异常] query=[{}]", truncate(userInput, 30), e))
                 .onErrorResume(e -> {
                     log.error("流式调用异常", e);
-                    String friendly = toFriendlyMessage(e);
-                    // 通过 SSE 推一条带 ⚠️ 前缀的提示，前端直接渲染
-                    return Flux.just("⚠️ " + friendly);
+                    return Flux.just("⚠️ " + toFriendlyMessage(e));
                 });
+    }
 
-
+    /**
+     * 从 conversationId 提取纯 userId
+     * <p>
+     * conversationId 格式："userId:sessionTag"
+     * tenantId 用纯 userId——保证同一用户在不同 session 的缓存共享
+     */
+    private String extractUserId(String conversationId) {
+        if (conversationId == null) return "default";
+        int idx = conversationId.indexOf(':');
+        return idx > 0 ? conversationId.substring(0, idx) : conversationId;
     }
 
     private String truncate(String s, int max) {

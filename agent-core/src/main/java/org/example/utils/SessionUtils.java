@@ -12,7 +12,7 @@ public class SessionUtils {
     private static final String DEFAULT_SESSION_HEADER_NAME = "X-Session-Id";
     private static final String DEFAULT_SESSION_COOKIE_NAME = "SESSION";
 
-
+    // ==================== 已有方法（保持不变） ====================
 
     public static String getUserId(HttpServletRequest request) {
         HttpSession session = request.getSession(false);
@@ -25,11 +25,6 @@ public class SessionUtils {
         throw new IllegalStateException("未登录");
     }
 
-    /**
-     * 生成 conversationId = userId:sessionTag
-     * - userId 来自服务端（安全）
-     * - sessionTag 客户端可传（无所谓，拼在 userId 后面）
-     */
     public static String getConversationId(HttpServletRequest request) {
         String userId = getUserId(request);
         String sessionTag = getSessionTag(request);
@@ -39,17 +34,12 @@ public class SessionUtils {
         return conversationId;
     }
 
-    /**
-     * 获取 sessionTag：客户端可传，取不到就生成一个
-     */
     private static String getSessionTag(HttpServletRequest request) {
-        // 1. 请求头
         String headerTag = request.getHeader(DEFAULT_SESSION_HEADER_NAME);
         if (headerTag != null && !headerTag.isBlank()) {
             return headerTag;
         }
 
-        // 2. Cookie
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
             for (Cookie cookie : cookies) {
@@ -59,7 +49,46 @@ public class SessionUtils {
             }
         }
 
-        // 3. 兜底：用 HttpSession.getId() 当 tag
         return request.getSession(true).getId();
+    }
+
+    // ==================== ★ D46 新增两个方法 ====================
+
+    /**
+     * 取当前用户部门
+     * <p>
+     * 未登录或无部门时返回 null——由调用方决定降级策略。
+     */
+    public static String getDepartment(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return null;
+        }
+        Object dept = session.getAttribute("AUTH_DEPT");
+        return dept == null ? null : dept.toString();
+    }
+
+    /**
+     * 取当前用户密级
+     * <p>
+     * 未登录或无密级时返回 1（最低密级）——安全兜底。
+     */
+    public static int getSecurityLevel(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return 1;
+        }
+        Object level = session.getAttribute("AUTH_SECURITY_LEVEL");
+        if (level instanceof Number n) {
+            return n.intValue();
+        }
+        if (level != null) {
+            try {
+                return Integer.parseInt(level.toString());
+            } catch (NumberFormatException ignore) {
+                // fallthrough
+            }
+        }
+        return 1;
     }
 }

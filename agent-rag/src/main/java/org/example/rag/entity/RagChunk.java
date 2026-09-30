@@ -41,4 +41,11 @@ public class RagChunk {
 
     /** 内容类型：text / table / image / pdf_ocr */
     private String contentType;
+
+// ★ D46 新增：权限与状态维度
+    /** 密级：1=公开 2=内部 3=秘密 4=机密。查询时过滤 security_level <= 用户密级 */
+    private Integer securityLevel;
+
+    /** 文档状态：active / archived / draft / deprecated */
+    private String status;
 }

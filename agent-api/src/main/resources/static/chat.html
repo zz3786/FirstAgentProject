@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>First Agent 聊天</title>
+    <title>First Agent 聊天 v3</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -73,6 +73,12 @@
             background: #eef1fd; padding: 3px 10px; border-radius: 12px;
             margin-left: 8px; font-weight: normal;
         }
+        /* ★ 版本徽章 */
+        .header .version-badge {
+            font-size: 11px; color: #fff;
+            background: #2ecc71; padding: 2px 8px; border-radius: 10px;
+            margin-left: 8px; font-weight: bold;
+        }
         .header .actions { display: flex; gap: 8px; }
         .header button {
             padding: 6px 14px; font-size: 13px;
@@ -80,6 +86,31 @@
             border-radius: 6px; cursor: pointer; color: #666;
         }
         .header button:hover { background: #eee; }
+        .header button.primary {
+            background: #667eea; color: #fff; border-color: #667eea;
+        }
+        .header button.primary:hover { background: #5568d3; }
+
+        .filter-bar {
+            padding: 8px 20px; background: #fafbfc;
+            border-bottom: 1px solid #eee;
+            display: flex; gap: 10px; align-items: center;
+            font-size: 12px; color: #666; flex-wrap: wrap;
+        }
+        .filter-bar label {
+            display: flex; align-items: center; gap: 4px;
+            cursor: pointer; user-select: none;
+        }
+        .filter-bar input[type="text"],
+        .filter-bar input[type="number"] {
+            padding: 4px 8px; font-size: 12px;
+            border: 1px solid #ddd; border-radius: 6px;
+            outline: none; width: 80px;
+        }
+        .filter-bar input:focus { border-color: #667eea; }
+        .filter-bar .hint-text {
+            color: #bbb; font-size: 11px;
+        }
 
         .messages { flex: 1; overflow-y: auto; padding: 20px; background: #fafbfc; }
         .message {
@@ -103,24 +134,19 @@
             line-height: 1.6; font-size: 14.5px;
             word-wrap: break-word;
         }
-        .bubble a {
-            color: #667eea;
-            text-decoration: underline;
-            cursor: pointer;
-            font-weight: 500;
+        .bubble a { color: #667eea; text-decoration: underline; cursor: pointer; font-weight: 500; }
+        .bubble a:hover { color: #5568d3; }
+        .bubble strong { font-weight: 700; color: #333; }
+        .bubble h3 { font-size: 15px; margin: 8px 0 6px; color: #333; }
+        .bubble code {
+            background: #f5f5f5; padding: 2px 5px; border-radius: 4px;
+            font-family: monospace; font-size: 13px;
         }
-        .bubble a:hover {
-            color: #5568d3;
+        .bubble pre {
+            background: #f5f5f5; padding: 10px 12px; border-radius: 8px;
+            overflow-x: auto; margin: 6px 0;
         }
-        .bubble strong {
-            font-weight: 700;
-            color: #333;
-        }
-        .bubble h3 {
-            font-size: 15px;
-            margin: 8px 0 6px;
-            color: #333;
-        }
+        .bubble pre code { background: none; padding: 0; }
         .message.user .bubble {
             background: #667eea; color: #fff;
             border-bottom-right-radius: 4px;
@@ -173,14 +199,14 @@
 
 <div class="login-panel" id="loginPanel">
     <div class="logo">🤖</div>
-    <h2>First Agent</h2>
+    <h2>First Agent <span style="font-size:14px;color:#2ecc71;">v3</span></h2>
     <p>请输入邀请码进入</p>
     <div class="error" id="loginError"></div>
     <input id="inviteCode" placeholder="邀请码" maxlength="32" />
     <button onclick="doLogin()">进入</button>
     <div class="hint">
         测试邀请码：<br>
-        <code>ALICE</code> 或 <code>BOB</code>
+        <code>ALICE</code>（财务部） 或 <code>BOB</code>（研发部）
     </div>
 </div>
 
@@ -190,11 +216,30 @@
             <span class="dot"></span>
             First Agent
             <span class="user-tag" id="userTag"></span>
+            <!-- ★ 版本徽章——用户一眼看到是否加载了新代码 -->
+            <span class="version-badge">v3</span>
         </h1>
         <div class="actions">
-            <button onclick="clearChat()">清空对话</button>
+            <button class="primary" onclick="newChat()">+ 新对话</button>
+            <button onclick="clearChat()">清空</button>
             <button onclick="doLogout()">退出</button>
         </div>
+    </div>
+
+    <div class="filter-bar">
+        <label>
+            部门:
+            <input type="text" id="filterDept" placeholder="如 财务部" />
+        </label>
+        <label>
+            年份 ≥:
+            <input type="number" id="filterYear" placeholder="2024" min="2000" max="2099" />
+        </label>
+        <label>
+            <input type="checkbox" id="filterArchived" />
+            包含历史版本
+        </label>
+        <span class="hint-text">（留空 = 不过滤）</span>
     </div>
 
     <div class="messages" id="messages">
@@ -218,57 +263,33 @@
         'use strict';
 
         // ============================================================
-        // 轻量 Markdown 渲染（不依赖任何外部库）
-        // 支持：HTML转义、链接、粗体、标题、换行
+        // ★★★ 页面版本标记——打开 F12 Console 第一行就能看到
         // ============================================================
+        console.log('%c=== chat.html v3 已加载 ===', 'background:#2ecc71;color:#fff;padding:4px 8px;font-weight:bold;font-size:14px;');
+        console.log('加载时间:', new Date().toLocaleTimeString());
+        console.log('crypto.randomUUID 支持:', !!(window.crypto && window.crypto.randomUUID));
+        console.log('');
+
         function renderMarkdown(text) {
             if (!text) return '';
-
-            // ① 转义 HTML 特殊字符（防 XSS）
             let html = text
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
-
-            // ② 转义后，URL 里的 & 变成了 &amp; —— 还原回来
-            //    （否则链接里的参数会显示成 &amp;）
             html = html.replace(/href="([^"]*)&amp;/g, 'href="$1&');
-
-            // ③ 代码块 ```...``` → <pre><code>
             html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-
-            // ④ 行内代码 `xxx` → <code>
             html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-
-            // ⑤ 粗体 **text** → <strong>
             html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-
-            // ⑥ Markdown 链接 [文字](链接) → <a>
-            html = html.replace(
-                /\[([^\]]+)\]\(([^)]+)\)/g,
-                '<a href="$2" target="_blank" rel="noopener">$1</a>'
-            );
-
-            // ⑦ 三级标题 ### xxx → <h3>
+            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
             html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
-
-            // ⑧ 二级标题 ## xxx → <h3>（合并到 h3）
             html = html.replace(/^##\s+(.+)$/gm, '<h3>$1</h3>');
-
-            // ⑨ 一级标题 # xxx → <h3>
             html = html.replace(/^#\s+(.+)$/gm, '<h3>$1</h3>');
-
-            // ⑩ 换行 → <br>
             html = html.replace(/\n/g, '<br>');
-
             return html;
         }
 
-        // ============================================================
-        // 元素引用
-        // ============================================================
         const loginPanel = document.getElementById('loginPanel');
         const chatPanel = document.getElementById('chatPanel');
         const loginError = document.getElementById('loginError');
@@ -277,27 +298,79 @@
         const messagesEl = document.getElementById('messages');
         const inputEl = document.getElementById('input');
         const sendBtn = document.getElementById('sendBtn');
+        const filterDeptEl = document.getElementById('filterDept');
+        const filterYearEl = document.getElementById('filterYear');
+        const filterArchivedEl = document.getElementById('filterArchived');
 
         let currentUser = null;
         let isStreaming = false;
 
-        // ============ 启动时检查登录状态 ============
+        const SESSION_KEY = 'first_agent_session_id';
+
+        /**
+         * 生成 sessionId
+         * v3：用 crypto.randomUUID 保证每次完全不同
+         */
+        function generateSessionId() {
+            let id;
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                id = window.crypto.randomUUID().replace(/-/g, '').substring(0, 8);
+                console.log('[generateSessionId] 用 crypto.randomUUID →', id);
+            } else {
+                id = Math.random().toString(36).substring(2, 10);
+                console.log('[generateSessionId] 用 Math.random 兜底 →', id);
+            }
+            return id;
+        }
+
+        function loadOrCreateSessionId() {
+            let sid = localStorage.getItem(SESSION_KEY);
+            if (!sid) {
+                sid = generateSessionId();
+                localStorage.setItem(SESSION_KEY, sid);
+                console.log('[loadOrCreateSessionId] 新建 →', sid);
+            } else {
+                console.log('[loadOrCreateSessionId] 已有 →', sid);
+            }
+            return sid;
+        }
+
+        let currentSessionId = loadOrCreateSessionId();
+
+        function updateUserTag() {
+            if (!currentUser) {
+                userTag.textContent = '';
+                return;
+            }
+            userTag.textContent = currentUser + ' · ' + currentSessionId;
+            console.log('[updateUserTag] 标签更新为:', userTag.textContent);
+        }
+
+        // ============================================================
+        // 启动检查
+        // ============================================================
         window.addEventListener('DOMContentLoaded', async () => {
+            console.log('[启动] DOMContentLoaded 触发');
             try {
                 const res = await fetch('/fap/auth/me');
                 const data = await res.json();
+                console.log('[启动] /auth/me 返回:', data);
                 if (data.userId) {
                     currentUser = data.userId;
+                    currentSessionId = loadOrCreateSessionId();
                     showChat();
                 } else {
                     showLogin();
                 }
             } catch (e) {
+                console.error('[启动] /auth/me 失败:', e);
                 showLogin();
             }
         });
 
-        // ============ 登录 ============
+        // ============================================================
+        // 登录
+        // ============================================================
         window.doLogin = async function() {
             const code = inviteCodeEl.value.trim().toUpperCase();
             if (!code) {
@@ -305,14 +378,15 @@
                 return;
             }
             loginError.textContent = '';
-
             try {
-                const res = await fetch('/fap/auth/login?code=' + encodeURIComponent(code), {
-                    method: 'POST'
-                });
+                const res = await fetch('/fap/auth/login?code=' + encodeURIComponent(code), { method: 'POST' });
                 const data = await res.json();
+                console.log('[登录] 返回:', data);
                 if (data.success) {
                     currentUser = data.userId;
+                    currentSessionId = generateSessionId();
+                    localStorage.setItem(SESSION_KEY, currentSessionId);
+                    console.log('[登录] 新 sessionId =', currentSessionId);
                     showChat();
                 } else {
                     loginError.textContent = data.message || '邀请码无效';
@@ -322,15 +396,15 @@
             }
         };
 
-        // ============ 退出 ============
+        // ============================================================
+        // 退出
+        // ============================================================
         window.doLogout = async function() {
             await fetch('/fap/auth/logout', { method: 'POST' });
             currentUser = null;
-            messagesEl.innerHTML = `
-      <div class="welcome">
-        <div class="big">👋</div>
-        <div>已退出，请重新输入邀请码</div>
-      </div>`;
+            localStorage.removeItem(SESSION_KEY);
+            currentSessionId = null;
+            messagesEl.innerHTML = `<div class="welcome"><div class="big">👋</div><div>已退出</div></div>`;
             inviteCodeEl.value = '';
             showLogin();
         };
@@ -344,11 +418,58 @@
         function showChat() {
             loginPanel.style.display = 'none';
             chatPanel.classList.add('active');
-            userTag.textContent = currentUser;
+            updateUserTag();
             inputEl.focus();
         }
 
-        // ============ 发送消息 ============
+        // ============================================================
+        // ★★★ 新对话——v3 加大量日志 + alert 反馈
+        // ============================================================
+        window.newChat = function() {
+            console.log('%c[newChat] ========== 点击了新对话 ==========', 'background:#667eea;color:#fff;padding:2px 6px;');
+            console.log('[newChat] isStreaming =', isStreaming);
+            console.log('[newChat] 旧 sessionId =', currentSessionId);
+            console.log('[newChat] localStorage 旧值 =', localStorage.getItem(SESSION_KEY));
+
+            if (isStreaming) {
+                console.warn('[newChat] isStreaming=true，被拦截');
+                alert('正在生成回复中，请稍候...');
+                return;
+            }
+
+            if (!confirm('开启新对话？')) {
+                console.log('[newChat] 用户取消');
+                return;
+            }
+
+            const oldId = currentSessionId;
+            currentSessionId = generateSessionId();
+            localStorage.setItem(SESSION_KEY, currentSessionId);
+
+            console.log('[newChat] 新 sessionId =', currentSessionId);
+            console.log('[newChat] localStorage 新值 =', localStorage.getItem(SESSION_KEY));
+
+            updateUserTag();
+
+            messagesEl.innerHTML = `
+      <div class="welcome">
+        <div class="big">👋</div>
+        <div>新对话已开始</div>
+        <div style="margin-top:6px;font-size:12px;color:#bbb;">
+          试试：帮我算 123+456 / 记住我住在合肥 / 推荐一个周末去处
+        </div>
+      </div>`;
+
+            // ★★★ 关键：弹窗让用户直观看到变化
+            alert('✅ 新对话已开启\n\n旧 ID: ' + oldId + '\n新 ID: ' + currentSessionId
+                + '\n\n顶部标签应该已更新。');
+
+            console.log('%c[newChat] 完成', 'background:#2ecc71;color:#fff;padding:2px 6px;');
+        };
+
+        // ============================================================
+        // 发送消息
+        // ============================================================
         window.send = function() {
             if (isStreaming) return;
             const text = inputEl.value.trim();
@@ -358,7 +479,6 @@
             inputEl.style.height = 'auto';
 
             appendMessage(text, 'user');
-
             const bubble = appendMessage('', 'bot');
             const cursor = document.createElement('span');
             cursor.className = 'cursor';
@@ -367,16 +487,26 @@
             isStreaming = true;
             sendBtn.disabled = true;
 
-            const url = '/fap/chat/streamR?message=' + encodeURIComponent(text);
-            const es = new EventSource(url);
+            const params = new URLSearchParams();
+            params.append('message', text);
+            params.append('sessionId', currentSessionId);
 
+            const dept = filterDeptEl.value.trim();
+            if (dept) params.append('departments', dept);
+            const year = filterYearEl.value.trim();
+            if (year) params.append('yearFrom', year);
+            if (filterArchivedEl.checked) params.append('includeArchived', 'true');
+
+            const url = '/fap/chat/streamR?' + params.toString();
+            console.log('[send] URL =', url);
+
+            const es = new EventSource(url);
             let fullText = '';
             let receivedAny = false;
 
             es.onmessage = (e) => {
                 receivedAny = true;
                 fullText += e.data;
-                // 用自定义 renderMarkdown 渲染（不依赖外部库）
                 bubble.innerHTML = renderMarkdown(fullText);
                 bubble.appendChild(cursor);
                 scrollToBottom();
@@ -386,7 +516,7 @@
                 es.close();
                 cursor.remove();
                 if (!receivedAny) {
-                    bubble.textContent = '⚠️ 连接失败，请检查后端是否启动或是否已登录';
+                    bubble.textContent = '⚠️ 连接失败';
                 }
                 finishStream();
             };
@@ -398,39 +528,32 @@
             inputEl.focus();
         }
 
-        // ============ 清空对话 ============
+        // ============================================================
+        // 清空
+        // ============================================================
         window.clearChat = async function() {
             if (isStreaming) return;
             if (!confirm('确定要清空当前对话吗？')) return;
-
             try {
-                await fetch('/fap/chat/clear', { method: 'POST' });
-                messagesEl.innerHTML = `
-        <div class="welcome">
-          <div class="big">👋</div>
-          <div>对话已清空</div>
-        </div>`;
+                const url = '/fap/chat/clear?sessionId=' + encodeURIComponent(currentSessionId);
+                await fetch(url, { method: 'POST' });
+                messagesEl.innerHTML = `<div class="welcome"><div class="big">👋</div><div>对话已清空</div></div>`;
             } catch (e) {
                 alert('清空失败：' + e.message);
             }
         };
 
-        // ============ 工具函数 ============
         function appendMessage(text, role) {
             const w = messagesEl.querySelector('.welcome');
             if (w) w.remove();
-
             const wrap = document.createElement('div');
             wrap.className = 'message ' + role;
-
             const avatar = document.createElement('div');
             avatar.className = 'avatar';
             avatar.textContent = role === 'user' ? '我' : '🤖';
-
             const bubble = document.createElement('div');
             bubble.className = 'bubble';
             bubble.textContent = text;
-
             wrap.appendChild(avatar);
             wrap.appendChild(bubble);
             messagesEl.appendChild(wrap);
@@ -442,18 +565,15 @@
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
 
-        // ============ 事件绑定 ============
         inviteCodeEl.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') doLogin();
         });
-
         inputEl.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 send();
             }
         });
-
         inputEl.addEventListener('input', () => {
             inputEl.style.height = 'auto';
             inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';

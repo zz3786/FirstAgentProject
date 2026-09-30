@@ -36,6 +36,13 @@ public class QdrantIndexConfig {
             // integer 索引：数值范围查询（year）
             createIndexIfAbsent(qdrantClient, collection,
                     "year", PayloadSchemaType.Integer);
+
+            // ★ D46 新增：密级和状态
+            createIndexIfAbsent(qdrantClient, collection,
+                    "security_level", PayloadSchemaType.Integer);
+
+            createIndexIfAbsent(qdrantClient, collection,
+                    "status", PayloadSchemaType.Keyword);
         };
     }
 

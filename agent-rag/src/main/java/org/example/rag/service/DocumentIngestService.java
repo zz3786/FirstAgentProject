@@ -49,7 +49,6 @@ public class DocumentIngestService {
 
     private final VectorStore vectorStore;
     private final DocumentParseService parseService;
-    private final TableExtractService tableExtractService;
     private final RagProperties ragProperties;
     private final RagChunkMapper ragChunkMapper;
 
@@ -59,7 +58,6 @@ public class DocumentIngestService {
                                  RagChunkMapper ragChunkMapper) {
         this.vectorStore = vectorStore;
         this.parseService = parseService;
-        this.tableExtractService = tableExtractService;
         this.ragProperties = ragProperties;
         this.ragChunkMapper = ragChunkMapper;
     }
@@ -192,10 +190,12 @@ public class DocumentIngestService {
      * 解析器只管"文件怎么变文本"，不该感知业务分类。
      */
     private void injectMetadata(List<Document> chunks, DocInfo docInfo) {
-        // ★ 从文件路径推断业务维度（示例规则，按你实际目录结构调整）
-        String filePath = docInfo.storedName() != null ? docInfo.storedName() : "";
         String department = inferDepartment(docInfo.originalName());
         Integer year = inferYear(docInfo.originalName());
+
+        // ★ D46 新增：从文件名推断密级和状态（生产环境建议改为入库参数）
+        Integer securityLevel = inferSecurityLevel(docInfo.originalName());
+        String status = inferStatus(docInfo.originalName());
 
         for (int i = 0; i < chunks.size(); i++) {
             Document chunk = chunks.get(i);
@@ -208,16 +208,74 @@ public class DocumentIngestService {
             meta.putIfAbsent("chunk_index", i);
             meta.putIfAbsent("total_chunks", chunks.size());
 
-            // ★ D46：业务过滤维度
+            // D46 过滤维度
             if (department != null) {
                 meta.putIfAbsent("department", department);
             }
             if (year != null) {
                 meta.putIfAbsent("year", year);
             }
-            // content_type 由各解析器自填（table/image/pdf_ocr），此处兜底为 "text"
             meta.putIfAbsent("content_type", "text");
+
+            // ★ D46 新增：密级和状态（有默认值，永远不会 null）
+            meta.putIfAbsent("security_level",
+                    securityLevel != null ? securityLevel : 1);
+            meta.putIfAbsent("status",
+                    status != null ? status : "active");
         }
+    }
+
+    /**
+     * 从文件名推断密级
+     * <p>
+     * 示例规则：
+     * - 含"机密"/"绝密" → 4
+     * - 含"秘密" → 3
+     * - 含"内部" → 2
+     * - 其他 → 1（公开）
+     * <p>
+     * 生产环境建议从目录结构、数据库配置、或入库参数取——比文件名可靠。
+     */
+    private Integer inferSecurityLevel(String fileName) {
+        if (fileName == null) {
+            return 1;
+        }
+        if (fileName.contains("绝密") || fileName.contains("机密")) {
+            return 4;
+        }
+        if (fileName.contains("秘密")) {
+            return 3;
+        }
+        if (fileName.contains("内部")) {
+            return 2;
+        }
+        return 1;
+    }
+
+    /**
+     * 从文件名推断状态
+     * <p>
+     * 示例规则：
+     * - 含"作废"/"废止"/"旧版" → deprecated
+     * - 含"草稿"/"draft" → draft
+     * - 含"归档" → archived
+     * - 其他 → active
+     */
+    private String inferStatus(String fileName) {
+        if (fileName == null) {
+            return "active";
+        }
+        String lower = fileName.toLowerCase();
+        if (lower.contains("作废") || lower.contains("废止") || lower.contains("旧版")) {
+            return "deprecated";
+        }
+        if (lower.contains("草稿") || lower.contains("draft")) {
+            return "draft";
+        }
+        if (lower.contains("归档") || lower.contains("archived")) {
+            return "archived";
+        }
+        return "active";
     }
 
     /**
@@ -287,17 +345,20 @@ public class DocumentIngestService {
             entity.setContent(chunk.getText());
             entity.setFilePath(docInfo.storedName());
 
-            // ★ D46 新增：从 metadata 读出过滤维度
             entity.setDepartment((String) meta.get("department"));
             entity.setContentType((String) meta.get("content_type"));
 
-            // year 在 metadata 里是 Integer，但要防御性处理
             Object yearObj = meta.get("year");
             if (yearObj instanceof Number n) {
                 entity.setYear(n.intValue());
-            } else if (yearObj instanceof String s && !s.isBlank()) {
-                try { entity.setYear(Integer.parseInt(s)); } catch (NumberFormatException ignore) {}
             }
+
+            // ★ D46 新增：密级和状态
+            Object secObj = meta.get("security_level");
+            if (secObj instanceof Number n) {
+                entity.setSecurityLevel(n.intValue());
+            }
+            entity.setStatus((String) meta.get("status"));
 
             entities.add(entity);
         }

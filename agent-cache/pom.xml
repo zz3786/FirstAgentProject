@@ -49,6 +49,12 @@
             <optional>true</optional>
         </dependency>
 
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <!-- 版本由 Spring Boot 父 pom 管理，不用写 -->
+        </dependency>
+
     </dependencies>
 
 </project>

@@ -48,7 +48,9 @@ public class SemanticCacheConfig {
                 .prefix(props.getKeyPrefix())
                 // ★★★ 关键：声明所有用于过滤的元数据字段
                 .metadataFields(
-                        MetadataField.tag("tenant_id")     // ★ tenant_id 声明为 TAG
+                        MetadataField.tag("tenant_id"),      // 精确匹配（过滤用）
+                        MetadataField.text("question"),      // ★ 全文检索字段
+                        MetadataField.text("answer")         // ★ 全文检索字段
                 )
                 .initializeSchema(true)
                 .build();

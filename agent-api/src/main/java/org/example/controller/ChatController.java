@@ -2,12 +2,16 @@ package org.example.controller;
 
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.example.api.common.ApiResponse;
+import org.example.rag.model.RagFilter;
 import org.example.service.ChatService;
 import org.example.utils.SessionUtils;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
+
+import java.util.List;
 
 /**
  * 对话接口
@@ -18,6 +22,7 @@ import reactor.core.publisher.Flux;
  * <p>
  * 所有异常由 GlobalExceptionHandler 统一处理。
  */
+@Slf4j
 @RestController
 @RequestMapping("chat")
 public class ChatController {
@@ -54,9 +59,55 @@ public class ChatController {
      * 出错时 ChatService 内部用 onErrorResume 转成 "⚠️ ..." 文本，仍走流式
      */
     @GetMapping(value = "streamR", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> streamR(@RequestParam String message, HttpServletRequest request) {
-        String conversationId = SessionUtils.getUserId(request);
-        return chatService.streamChatWithMemory(message, conversationId);
+    public Flux<String> streamR(
+            // 业务参数
+            @RequestParam String message,
+            // 会话参数
+            @RequestParam(required = false) String sessionId,
+            // 用户可选筛选维度（前端可传）
+            @RequestParam(required = false) List<String> departments,
+            @RequestParam(required = false) Integer yearFrom,
+            @RequestParam(required = false) List<String> docTypes,
+            @RequestParam(required = false, defaultValue = "false") Boolean includeArchived,
+            HttpServletRequest request) {
+
+        String userId = SessionUtils.getUserId(request);
+
+        // conversationId = userId:sessionId
+        String effectiveSessionId = (sessionId == null || sessionId.isBlank())
+                ? "default" : sessionId;
+        String conversationId = userId + ":" + effectiveSessionId;
+
+        // ============ 服务端强制项 ============
+        // ★ 密级——从 Session 取，前端不可传
+        int userSecurityLevel = SessionUtils.getSecurityLevel(request);
+
+        // ★ 状态——默认 active；includeArchived 放开
+        List<String> statuses = Boolean.TRUE.equals(includeArchived)
+                ? List.of("active", "archived")
+                : List.of("active");
+
+        // ============ 前端可控项 ============
+        // 部门——前端没传则用 Session 里的
+        List<String> effectiveDepts = (departments != null && !departments.isEmpty())
+                ? departments
+                : (SessionUtils.getDepartment(request) == null
+                ? null
+                : List.of(SessionUtils.getDepartment(request)));
+
+        // ============ 组装 filter ============
+        RagFilter filter = new RagFilter(
+                effectiveDepts,
+                yearFrom, null,
+                docTypes, null,
+                userSecurityLevel,     // ★ 强制
+                statuses               // ★ 默认策略
+        );
+
+        log.info("streamR: userId={}, conversationId={}, securityLevel={}, filter={}",
+                userId, conversationId, userSecurityLevel, filter);
+
+        return chatService.streamChatWithMemory(message, conversationId, filter);
     }
 
     /**

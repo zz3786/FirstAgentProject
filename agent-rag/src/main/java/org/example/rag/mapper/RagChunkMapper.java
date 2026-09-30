@@ -39,5 +39,8 @@ public interface RagChunkMapper {
             @Param("departments") List<String> departments,
             @Param("yearFrom") Integer yearFrom,
             @Param("yearTo") Integer yearTo,
-            @Param("docTypes") List<String> docTypes);
+            @Param("docTypes") List<String> docTypes,
+            @Param("securityLevelMax") Integer securityLevelMax,   // ★ 新增
+            @Param("statuses") List<String> statuses               // ★ 新增
+    );
 }

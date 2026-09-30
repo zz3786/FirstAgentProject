@@ -17,17 +17,23 @@
         <result property="department"  column="department"/>
         <result property="year"        column="year"/>
         <result property="contentType" column="content_type"/>
+        <result property="securityLevel"  column="security_level"/>
+        <result property="status"         column="status"/>
     </resultMap>
 
     <!-- ==================== 批量插入（入库时用） ==================== -->
     <insert id="batchInsert">
         INSERT INTO rag_chunks
         (doc_id, chunk_index, source, content, file_path,
-        department, year, content_type, created_at)
+        department, year, content_type,
+        security_level, status,                          <!-- ★ 新增 -->
+        created_at)
         VALUES
         <foreach collection="list" item="c" separator=",">
             (#{c.docId}, #{c.chunkIndex}, #{c.source}, #{c.content}, #{c.filePath},
-            #{c.department}, #{c.year}, #{c.contentType}, NOW())
+            #{c.department}, #{c.year}, #{c.contentType},
+            #{c.securityLevel}, #{c.status},                 <!-- ★ 新增 -->
+            NOW())
         </foreach>
     </insert>
 
@@ -40,24 +46,6 @@
 <!--        ORDER BY score DESC-->
 <!--            LIMIT #{topK}-->
 <!--    </select>-->
-
-
-    <!-- ==================== 关键词检索（无过滤） ==================== -->
-    <!--
-        全文检索：用 MySQL 的 MATCH AGAINST（ngram parser 支持中文）
-        score = 相关度得分，用于后续 RRF/加权融合
-        RagChunkMapper.xml  优化关键词检索，以弥补MySQL ngram分词粒度太粗导致的误召回问题
-    -->
-    <select id="fulltextSearch" resultMap="BaseResultMap">
-        SELECT
-            id, doc_id, chunk_index, source, content, file_path,
-            department, year, content_type, created_at,
-            MATCH(content) AGAINST(#{query} IN BOOLEAN MODE) AS score
-        FROM rag_chunks
-        WHERE MATCH(content) AGAINST(#{query} IN BOOLEAN MODE)
-        ORDER BY score DESC
-        LIMIT #{topK}
-    </select>
 
 
 
@@ -88,34 +76,41 @@
     <select id="fulltextSearchWithFilter" resultMap="BaseResultMap">
         SELECT
         id, doc_id, chunk_index, source, content, file_path,
-        department, year, content_type, created_at,
+        department, year, content_type, security_level, status,   <!-- ★ 新增列 -->
+        created_at,
         MATCH(content) AGAINST(#{query} IN BOOLEAN MODE) AS score
         FROM rag_chunks
         WHERE MATCH(content) AGAINST(#{query} IN BOOLEAN MODE)
 
-        <!-- 部门过滤（IN 多值） -->
         <if test="departments != null and departments.size() > 0">
             AND department IN
             <foreach collection="departments" item="d" open="(" close=")" separator=",">
                 #{d}
             </foreach>
         </if>
-
-        <!-- 年份下界 -->
         <if test="yearFrom != null">
             AND year &gt;= #{yearFrom}
         </if>
-
-        <!-- 年份上界 -->
         <if test="yearTo != null">
             AND year &lt;= #{yearTo}
         </if>
-
-        <!-- 内容类型过滤（IN 多值） -->
         <if test="docTypes != null and docTypes.size() > 0">
             AND content_type IN
             <foreach collection="docTypes" item="t" open="(" close=")" separator=",">
                 #{t}
+            </foreach>
+        </if>
+
+        <!-- ★ D46 新增：密级过滤（<= 用户密级） -->
+        <if test="securityLevelMax != null">
+            AND security_level &lt;= #{securityLevelMax}
+        </if>
+
+        <!-- ★ D46 新增：状态过滤 -->
+        <if test="statuses != null and statuses.size() > 0">
+            AND status IN
+            <foreach collection="statuses" item="s" open="(" close=")" separator=",">
+                #{s}
             </foreach>
         </if>
 
