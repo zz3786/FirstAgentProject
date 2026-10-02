@@ -16,6 +16,27 @@ import reactor.core.publisher.Flux;
 
 import java.util.List;
 
+/**
+ * RAG 检索增强 Advisor
+ * <p>
+ * <b>职责（两件事）</b>：
+ * <ol>
+ *   <li><b>获取 docs</b>——优先用调用方通过 {@code prefetched_docs} 传入的前置结果；
+ *       没有时回退到"现场检索"（兼容绕过 ChatService 直接调 ChatClient 的场景）</li>
+ *   <li><b>注入 SystemMessage</b>——把 docs 包装成带编号、带下载链接的 Prompt 片段，
+ *       追加到 SystemMessage。这是 ChatService 无法代替的职责——
+ *       ChatClient 的 prompt 构造只在 Advisor 链内完成</li>
+ * </ol>
+ *
+ * <h3>为什么会有"前置检索"</h3>
+ * D47 澄清判定要求在"调 LLM 之前"拿到检索结果——
+ * Advisor 无法短路、工具无法短路，只有 ChatService（调用层）能。
+ * 所以检索被提前到 ChatService 做一次，结果通过 {@code prefetched_docs} 传下来，
+ * 本 Advisor 直接复用——避免重复 embedding / 重复 Qdrant 往返。
+ *
+ * <h3>执行顺序</h3>
+ * order = 150——在 PreferenceAdvisor(100) 之后、MemoryRetrievalAdvisor(200) 之前。
+ */
 @Slf4j
 public class RagAdvisor implements CallAdvisor, StreamAdvisor {
 
@@ -45,27 +66,25 @@ public class RagAdvisor implements CallAdvisor, StreamAdvisor {
         return chain.nextStream(enrich(request));
     }
 
-
     /**
-     * 从上下文中提取过滤条件并执行检索
+     * 从上下文中取 docs 并注入 SystemMessage
      * <p>
-     * <b>过滤条件从哪来</b>：
-     * 调用方通过 advisor param 传入，如：
-     * <pre>
-     * chatClient.prompt()
-     *     .user(question)
-     *     .advisors(a -> a
-     *         .param(ChatMemory.CONVERSATION_ID, cid)
-     *         .param("rag_filter", new RagFilter(List.of("研发部"), 2024, null, null, null)))
-     *     .stream().content();
-     * </pre>
-     * <p>
-     * <b>为什么用 context 而非方法参数</b>：
-     * Advisor 的 enrich 方法签名是固定的，无法加参数。
-     * ChatClientRequest.context() 是 Spring AI 提供的"跨 Advisor 传参通道"，
-     * 和 MessageChatMemoryAdvisor 读 CONVERSATION_ID 是同一个机制。
+     * <b>docs 的来源（两种）</b>：
+     * <ol>
+     *   <li><b>前置检索</b>——ChatService 通过
+     *       {@code .advisors(a -> a.param("prefetched_docs", docs))} 传入。
+     *       D47 主路径，一次检索两用（澄清判定 + 注入），避免重复算 embedding</li>
+     *   <li><b>现场检索</b>——context 里没有 {@code prefetched_docs} 时回退。
+     *       兼容绕过 ChatService 直接调 ChatClient 的场景（测试类、未来可能的接口）</li>
+     * </ol>
+     *
+     * <b>关键：为什么判断 {@code instanceof List} 而不判断 {@code !isEmpty()}</b>：
+     * 前置检索返回空列表是"有效信息"——表示"确实没结果"。
+     * 如果因为空就回退现场检索——会重复检索一次，白花 embedding 费用。
+     * 所以只要 context 里存在 {@code prefetched_docs}（哪怕是空 List）——就用它。
      */
     private ChatClientRequest enrich(ChatClientRequest request) {
+        // ① 提取用户问题（Prompt 里最后一条 USER 消息）
         String query = request.prompt().getInstructions().stream()
                 .filter(m -> "USER".equals(m.getMessageType().name()))
                 .map(Message::getText)
@@ -75,16 +94,30 @@ public class RagAdvisor implements CallAdvisor, StreamAdvisor {
             return request;
         }
 
-        // ★ 从 context 取过滤条件
+        // ② 从 context 取过滤条件（前端可传 department / year，服务端强制 security_level / status）
         RagFilter filter = (RagFilter) request.context().get("rag_filter");
 
-        // ★ 带过滤检索
-        List<Document> docs = hybridSearchService.search(query, filter);
+        // ③ ★ 获取 docs——优先前置，兜底现场
+        List<Document> docs;
+        Object prefetched = request.context().get("prefetched_docs");
+        if (prefetched instanceof List<?> list) {
+            // ★ 前置检索结果——ChatService 已完成检索，直接用
+            //   注意：不判断 isEmpty——空 List 是"确实没结果"的有效信号
+            docs = (List<Document>) list;
+            log.info("RAG 使用前置检索结果，共 {} 条（过滤={}）", docs.size(), filter);
+        } else {
+            // ★ 无前置结果（绕过 ChatService 直接调 ChatClient）——回退现场检索
+            docs = hybridSearchService.search(query, filter);
+            log.info("RAG 现场检索，返回 {} 条（过滤={}）", docs.size(), filter);
+        }
+
+        // ④ 无结果 → 跳过注入（不污染 Prompt）
         if (docs.isEmpty()) {
-            log.info("RAG 无检索结果（过滤条件={}），跳过注入", filter);
+            log.info("RAG 无检索结果（过滤={}），跳过注入", filter);
             return request;
         }
 
+        // ⑤ 注入 SystemMessage——这部分逻辑不变
         String context = buildContext(docs);
         String injection = buildRagPrompt(context);
         log.info("RAG 注入 {} 条资料（过滤={}）", docs.size(), filter);
@@ -92,6 +125,8 @@ public class RagAdvisor implements CallAdvisor, StreamAdvisor {
         Prompt newPrompt = request.prompt().augmentSystemMessage(injection);
         return request.mutate().prompt(newPrompt).build();
     }
+
+    // ==================== 以下方法完全不变 ====================
 
     /**
      * 构造编号化的参考资料

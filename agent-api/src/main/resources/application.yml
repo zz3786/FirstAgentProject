@@ -102,6 +102,12 @@ app:
     min-text-length: 5                     # 少于 5 字视为无有效文本
     page-seg-mode: 3                       # PSM 3 = 全自动
 
+  # 澄清判定配置
+  clarification:
+    enabled: true
+    min-top-score: 0.5
+    min-qualified-docs: 2
+
 
   #缓存模块配置
   cache:
