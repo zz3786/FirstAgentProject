@@ -108,6 +108,17 @@ app:
     min-top-score: 0.5
     min-qualified-docs: 2
 
+  # ★ D50 新增：对话历史向量化
+  conversation-memory:
+    enabled: true
+    index-name: conversation-memory-index
+    key-prefix: "conv-mem:"
+    top-k: 3
+    similarity-threshold: 0.75
+    max-assistant-chars: 2000
+    min-user-message-chars: 5
+    exclude-current-conversation: false
+
 
   #缓存模块配置
   cache:

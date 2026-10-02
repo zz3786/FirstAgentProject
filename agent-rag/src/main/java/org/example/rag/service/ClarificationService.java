@@ -41,29 +41,32 @@ public class ClarificationService {
     /**
      * 判断检索结果是否"不明确"
      * <p>
-     * <b>三个信号</b>：
+     * <b>判定边界（重要）</b>：
+     * "无结果"≠"模糊"。无结果有两种含义：
      * <ol>
-     *   <li>完全无结果 → 模糊</li>
-     *   <li>最高分低于 minTopScore → 模糊</li>
-     *   <li>高分文档数 < minQualifiedDocs → 模糊</li>
+     *   <li>问的是知识库，但库里没有 → 直接答"没有相关资料"，不反问</li>
+     *   <li>问的根本不是知识库问题（如"我叫小明"）→ 走正常流程（工具/闲聊）</li>
      * </ol>
-     *
-     * @param query 用户问题
-     * @param docs  RAG 检索结果（含 rerank_score）
-     * @return true = 需要反问；false = 可以直接答
+     * 两种情况都不该触发澄清——只有"有结果但不确定"才反问。
+     * <p>
+     * <b>为什么不判空</b>：
+     * 空列表意味着检索"没找到"——这在语义上不是"模糊"，
+     * 是"确定没有"。反问"你是不是想问别的"是错误引导。
      */
     public boolean isAmbiguous(String query, List<Document> docs) {
         if (!props.isEnabled()) {
             return false;
         }
 
-        // 信号 1：完全无结果
+        // ★ 关键修复：无结果不澄清
+        //   - "我叫小明" → 无结果 → 走正常流程（工具/闲聊）
+        //   - "X 的最新规定" → 无结果 → 直接答"没有相关资料"
         if (docs == null || docs.isEmpty()) {
-            log.info("[澄清判定] 无检索结果 → 模糊");
-            return true;
+            log.info("[澄清判定] 无检索结果 → 不澄清（可能是非知识库问题）");
+            return false;
         }
 
-        // 提取所有 rerank_score
+        // 以下不变——只在"有结果但不够好"时判定
         List<Double> scores = docs.stream()
                 .map(d -> {
                     Object s = d.getMetadata().get("rerank_score");
@@ -72,8 +75,6 @@ public class ClarificationService {
                 .filter(Objects::nonNull)
                 .toList();
 
-        // 没有 rerank_score 说明 TEI 没生效——无法判断，默认不模糊
-        // （避免误伤——宁可硬答也不误反问）
         if (scores.isEmpty()) {
             log.warn("[澄清判定] 无 rerank_score 字段，跳过判定");
             return false;
@@ -90,13 +91,13 @@ public class ClarificationService {
                 props.getMinTopScore(),
                 props.getMinQualifiedDocs());
 
-        // 信号 2：最高分太低
+        // 信号 1：有结果但最高分太低
         if (maxScore < props.getMinTopScore()) {
             log.info("[澄清判定] 最高分低于阈值 → 模糊");
             return true;
         }
 
-        // 信号 3：高分文档太少
+        // 信号 2：有结果但高分项太少
         if (qualifiedCount < props.getMinQualifiedDocs()) {
             log.info("[澄清判定] 高分文档数不足 → 模糊");
             return true;

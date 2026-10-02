@@ -1,9 +1,6 @@
 package org.example.config;
 
-import org.example.advisor.CompactingChatMemoryAdvisor;
-import org.example.advisor.MemoryRetrievalAdvisor;
-import org.example.advisor.PreferenceAdvisor;
-import org.example.advisor.ToolLoggingAdvisor;
+import org.example.advisor.*;
 import org.example.memory.LongTermMemoryService;
 import org.example.preference.UserPreferenceService;
 import org.example.rag.advisor.RagAdvisor;
@@ -60,7 +57,10 @@ public class ChatClientConfig {
             CompactingChatMemoryAdvisor compactingAdvisor,
             UserPreferenceService preferenceService,
             LongTermMemoryService longTermMemoryService,
-            HybridSearchService hybridSearchService ) {
+            HybridSearchService hybridSearchService,
+            // ★ D50 新增两个参数
+            ConversationRetrievalAdvisor conversationRetrievalAdvisor,
+            ConversationMemoryAdvisor conversationMemoryAdvisor) {
 
         return ChatClient.builder(chatModel)
                 .defaultAdvisors(
@@ -70,12 +70,16 @@ public class ChatClientConfig {
                         compactingAdvisor,
                         // ③ 用户偏好
                         new PreferenceAdvisor(preferenceService),
-                        // ④ RAG 检索（topK、阈值从配置读）
-                        new RagAdvisor(hybridSearchService),   // ← 改这里
-                        // ⑤ 长期记忆检索
+                        // ④ RAG 检索
+                        new RagAdvisor(hybridSearchService),
+                        // ⑤ 长期记忆检索（LTM 关键词路，order=200）
                         new MemoryRetrievalAdvisor(longTermMemoryService),
-                        // ⑥ 工具日志
-                        new ToolLoggingAdvisor()
+                        // ⑥ ★ D50 对话历史检索（向量语义路，order=210）
+                        conversationRetrievalAdvisor,
+                        // ⑦ 工具日志
+                        new ToolLoggingAdvisor(),
+                        // ⑧ ★ D50 对话历史写入（order=250，链尾）
+                        conversationMemoryAdvisor
                 )
                 .build();
     }
