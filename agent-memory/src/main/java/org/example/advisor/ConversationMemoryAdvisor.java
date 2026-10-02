@@ -70,12 +70,15 @@ public class ConversationMemoryAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
+        log.info("[ENTER] {} order={}", getName(), getOrder());
         StringBuilder answerBuf = new StringBuilder();
         return chain.nextStream(request)
                 .doOnNext(resp -> accumulate(resp, answerBuf))
-                .doOnComplete(() -> persistTurn(request, answerBuf.toString()))
-                .doOnError(err -> log.warn("D50 流式响应异常，不写历史: {}",
-                        err.getMessage()));
+                .doOnComplete(() -> {
+                    log.info("[EXIT]  {} order={} —— 开始写对话历史", getName(), getOrder());
+                    persistTurn(request, answerBuf.toString());
+                })
+                .doOnError(err -> log.warn("[ERROR] {} : {}", getName(), err.getMessage()));
     }
 
     // ==================== 核心：写入历史 ====================

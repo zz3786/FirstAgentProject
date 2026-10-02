@@ -45,7 +45,9 @@ public class PreferenceAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
-        return chain.nextStream(inject(request));
+        log.info("[ENTER] {} order={}", getName(), getOrder());
+        return chain.nextStream(inject(request))
+                .doOnComplete(() -> log.info("[EXIT]  {} order={}", getName(), getOrder()));
     }
 
     private ChatClientRequest inject(ChatClientRequest request) {

@@ -60,17 +60,18 @@ public class ToolLoggingAdvisor implements CallAdvisor, StreamAdvisor {
     // ==================== 流式 ====================
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
+        log.info("[ENTER] {} order={} —— 即将调用模型", getName(), getOrder());
         logRequest(request);
         StringBuilder fullText = new StringBuilder();
         return chain.nextStream(request)
                 .doOnNext(response -> accumulate(response, fullText))
                 .doOnComplete(() -> {
+                    log.info("[EXIT]  {} order={} —— 模型原始输出完毕", getName(), getOrder());
                     if (!fullText.isEmpty()) {
-                        log.info("========== [流式响应完成] ==========\n{}", fullText);
+                        log.info("========== [流式响应内容] ==========\n{}", fullText);
                     }
                 })
-                .doOnError(err ->
-                        log.error("========== [流式响应异常] ==========", err));
+                .doOnError(err -> log.error("[ERROR] {} : {}", getName(), err.getMessage()));
     }
 
     // ==================== 请求日志 ====================

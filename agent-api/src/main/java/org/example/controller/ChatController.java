@@ -11,6 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -87,13 +88,24 @@ public class ChatController {
                 ? List.of("active", "archived")
                 : List.of("active");
 
-        // ============ 前端可控项 ============
-        // 部门——前端没传则用 Session 里的
-        List<String> effectiveDepts = (departments != null && !departments.isEmpty())
-                ? departments
-                : (SessionUtils.getDepartment(request) == null
-                ? null
-                : List.of(SessionUtils.getDepartment(request)));
+        // ============ 前端可控项：部门 ============
+        // ★ 用 ArrayList——因为下面要 add("公开")，List.of() / 前端传的 List 可能不可变
+        List<String> effectiveDepts = new ArrayList<>();
+
+        if (departments != null && !departments.isEmpty()) {
+            // 前端传了——以它为准
+            effectiveDepts.addAll(departments);
+        } else if (SessionUtils.getDepartment(request) != null) {
+            // 前端没传——用 Session 里的部门
+            effectiveDepts.add(SessionUtils.getDepartment(request));
+        }
+        // 若 Session 也没有部门（如未登录兜底场景），effectiveDepts 保持为空
+
+        // ★ 追加"公开"——所有部门都能看到通用文档
+        //   去重判断——防止前端已传"公开"导致重复
+        if (!effectiveDepts.contains("公开")) {
+            effectiveDepts.add("公开");
+        }
 
         // ============ 组装 filter ============
         RagFilter filter = new RagFilter(

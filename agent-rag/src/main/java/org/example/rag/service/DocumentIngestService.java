@@ -193,7 +193,12 @@ public class DocumentIngestService {
         String department = inferDepartment(docInfo.originalName());
         Integer year = inferYear(docInfo.originalName());
 
-        // ★ D46 新增：从文件名推断密级和状态（生产环境建议改为入库参数）
+        // ★ 推断不出 → 用哨兵默认值（和老数据对齐）
+        //   部门："公开"——对所有部门可见
+        //   年份：0  ——一个合理的"未知"占位
+        if (department == null) department = "公开";
+        if (year == null)       year = 0;
+
         Integer securityLevel = inferSecurityLevel(docInfo.originalName());
         String status = inferStatus(docInfo.originalName());
 
@@ -208,16 +213,11 @@ public class DocumentIngestService {
             meta.putIfAbsent("chunk_index", i);
             meta.putIfAbsent("total_chunks", chunks.size());
 
-            // D46 过滤维度
-            if (department != null) {
-                meta.putIfAbsent("department", department);
-            }
-            if (year != null) {
-                meta.putIfAbsent("year", year);
-            }
-            meta.putIfAbsent("content_type", "text");
+            // ★ 无条件写入——不再判断 null
+            meta.putIfAbsent("department", department);
+            meta.putIfAbsent("year", year);
 
-            // ★ D46 新增：密级和状态（有默认值，永远不会 null）
+            meta.putIfAbsent("content_type", "text");
             meta.putIfAbsent("security_level",
                     securityLevel != null ? securityLevel : 1);
             meta.putIfAbsent("status",
@@ -359,6 +359,17 @@ public class DocumentIngestService {
                 entity.setSecurityLevel(n.intValue());
             }
             entity.setStatus((String) meta.get("status"));
+
+            // ★ 新增：页码 + 总切片数（从 metadata 取，PDF 解析时已注入）
+            Object pageObj = meta.get("page_number");
+            if (pageObj instanceof Number n) {
+                entity.setPageNumber(n.intValue());
+            }
+
+            Object totalObj = meta.get("total_chunks");
+            if (totalObj instanceof Number n) {
+                entity.setTotalChunks(n.intValue());
+            }
 
             entities.add(entity);
         }

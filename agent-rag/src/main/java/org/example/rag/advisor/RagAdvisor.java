@@ -63,7 +63,9 @@ public class RagAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
-        return chain.nextStream(enrich(request));
+        log.info("[ENTER] {} order={}", getName(), getOrder());
+        return chain.nextStream(enrich(request))
+                .doOnComplete(() -> log.info("[EXIT]  {} order={}", getName(), getOrder()));
     }
 
     /**
@@ -140,7 +142,19 @@ public class RagAdvisor implements CallAdvisor, StreamAdvisor {
 
             String source = (String) doc.getMetadata().getOrDefault("source", "未知文档");
             String docId = (String) doc.getMetadata().get("doc_id");
-            Object page = doc.getMetadata().getOrDefault("page_number", "1");
+
+            // ★ 取页码——取不到显示 "?"，不再谎报第 1 页
+            Object page = doc.getMetadata().get("page_number");
+            if (page == null) page = doc.getMetadata().get("pageNumber");
+            String pageText = (page instanceof Number n) ? String.valueOf(n.intValue()) : "?";
+
+            // ★ 顺带把切片信息带上（可选）——让模型知道这段在原文档的位置
+            Object totalChunks = doc.getMetadata().get("total_chunks");
+            String chunkInfo = "";
+            Object chunkIdx = doc.getMetadata().get("chunk_index");
+            if (chunkIdx instanceof Number ci && totalChunks instanceof Number tc) {
+                chunkInfo = String.format("（第 %d/%d 段）", ci.intValue() + 1, tc.intValue());
+            }
 
             String link = (docId != null && !docId.isBlank())
                     ? "/fap/rag/file/download/" + docId
@@ -148,11 +162,11 @@ public class RagAdvisor implements CallAdvisor, StreamAdvisor {
 
             ctx.append(String.format("""
                     【资料 %d】
-                    来源：《%s》第 %s 页
+                    来源：《%s》第 %s 页%s
                     下载链接：%s
                     内容：%s
-                    
-                    """, i + 1, source, page, link, doc.getText()));
+
+                    """, i + 1, source, pageText, chunkInfo, link, doc.getText()));
         }
         return ctx.toString();
     }

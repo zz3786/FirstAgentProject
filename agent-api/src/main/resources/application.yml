@@ -79,7 +79,7 @@ app:
     listen-files-dir: D:/download/testVectorData             # 监听目录
     scan-interval-ms: 300000                                  # 扫描间隔 60 秒
     incremental-enabled: true                                # 是否启用增量更新
-    top-k: 2                                                 # → topK
+    top-k: 5                                                # → topK
     similarity-threshold: 0.5                                # → similarityThreshold
     rrf-k: 60
     recall-multiplier: 2
@@ -102,13 +102,13 @@ app:
     min-text-length: 5                     # 少于 5 字视为无有效文本
     page-seg-mode: 3                       # PSM 3 = 全自动
 
-  # 澄清判定配置
+  #D47澄清判定配置
   clarification:
     enabled: true
     min-top-score: 0.5
     min-qualified-docs: 2
 
-  # ★ D50 新增：对话历史向量化
+  #D50 新增：对话历史向量化
   conversation-memory:
     enabled: true
     index-name: conversation-memory-index
@@ -117,8 +117,12 @@ app:
     similarity-threshold: 0.75
     max-assistant-chars: 2000
     min-user-message-chars: 5
-    exclude-current-conversation: false
+    exclude-current-conversation: true
 
+  #D51个性化检索逻辑开关
+  retrieval:
+    profile:
+      enabled: true     # 灰度上线，观察后再全量
 
   #缓存模块配置
   cache:
@@ -129,6 +133,15 @@ app:
       similarity-threshold: 0.85
       ttl-hours: 24
       max-cache-per-user: 200
+
+  # ★ D52 新增：主动推荐
+  recommendation:
+    enabled: true
+    top-k: 3
+    recall-size: 9
+    recent-query-count: 2
+    prefix: "[RECOMMEND]"
+    max-snippet-chars: 80
 
 
   compaction:

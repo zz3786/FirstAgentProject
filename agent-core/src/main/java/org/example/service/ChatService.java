@@ -4,10 +4,13 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.example.cache.service.SemanticCacheService;
+import org.example.rag.config.RecommendationProperties;
 import org.example.rag.model.RagFilter;
+import org.example.rag.model.RecommendedDoc;
 import org.example.rag.model.RetrievalProfile;
 import org.example.rag.service.ClarificationService;
 import org.example.rag.service.HybridSearchService;
+import org.example.rag.service.RecommendationService;
 import org.example.rag.service.RetrievalProfileService;
 import org.example.rag.tools.RetrievalPreferenceTools;
 import org.example.tools.SafeToolCallback;
@@ -23,9 +26,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Agent 核心业务服务
@@ -85,6 +87,12 @@ public class ChatService {
 
     /** D51 个性化检索 核心，" */
     private final RetrievalProfileService retrievalProfileService;
+
+    /** ★ D52：主动推荐配置 */
+    private final RecommendationProperties recommendationProperties;
+
+    /** ★ D52：主动推荐服务 */
+    private final RecommendationService recommendationService;
 
     /**
      * 会话记忆
@@ -156,7 +164,7 @@ public class ChatService {
             SemanticCacheService semanticCacheService,
             HybridSearchService hybridSearchService,
             ClarificationService clarificationService,
-            RetrievalProfileService retrievalProfileService,
+            RetrievalProfileService retrievalProfileService, RecommendationProperties recommendationProperties, RecommendationService recommendationService,
             @Qualifier("redisChatMemory") ChatMemory chatMemory) {
         this.chatClientWithMemory = chatClientWithMemory;
         this.chatClientWithoutMemory = chatClientWithoutMemory;
@@ -164,6 +172,8 @@ public class ChatService {
         this.hybridSearchService = hybridSearchService;
         this.clarificationService = clarificationService;
         this.retrievalProfileService = retrievalProfileService;
+        this.recommendationProperties = recommendationProperties;
+        this.recommendationService = recommendationService;
         this.chatMemory = chatMemory;
     }
 
@@ -327,7 +337,7 @@ public class ChatService {
         StringBuilder fullAnswer = new StringBuilder();
         long[] firstTokenTime = {0};
 
-        return chatClientWithMemory.prompt()
+        Flux<String> mainStream =  chatClientWithMemory.prompt()
                 .user(userInput)
                 .advisors(a -> {
                     // 会话 ID——MessageChatMemoryAdvisor 用来读写 CHAT
@@ -372,7 +382,17 @@ public class ChatService {
                     log.error("流式调用异常", e);
                     return Flux.just("⚠️ " + toFriendlyMessage(e));
                 });
+
+        // ★ D52：主流结束后追加推荐块
+        //   Flux.defer 保证推荐逻辑延迟到"主流 complete 后"才执行
+        return mainStream.concatWith(
+                Flux.defer(() -> buildRecommendationFlux(
+                        userInput, conversationId, prefetchedDocs, effectiveFilter))
+        );
     }
+
+
+
 
     // ==================== 辅助方法 ====================
 
@@ -483,6 +503,96 @@ public class ChatService {
             return docs;
         } catch (Exception e) {
             log.warn("🔍 [前置检索] 失败，降级为空结果", e);
+            return List.of();
+        }
+    }
+
+    /**
+     * 构建推荐流——追加在主流末尾
+     * <p>
+     * <b>为什么用 Flux.defer 包裹</b>：
+     * 保证推荐逻辑在**主流 complete 之后**才真正执行——
+     * 此时 CHAT 里已经写入本轮对话，能正确取到历史提问。
+     * <p>
+     * <b>为什么吞异常</b>：
+     * 推荐是"锦上添花"——任何失败都降级为空 Flux，
+     * 绝不能因为推荐异常影响已经成功的回答。
+     */
+    private Flux<String> buildRecommendationFlux(String userInput,
+                                                 String conversationId,
+                                                 List<Document> alreadyShown,
+                                                 RagFilter filter) {
+        try {
+            if (!recommendationProperties.isEnabled()) {
+                return Flux.empty();
+            }
+
+            // ① 排除已引用的 docId
+            Set<String> excludeIds = alreadyShown == null
+                    ? Set.of()
+                    : alreadyShown.stream()
+                    .map(d -> (String) d.getMetadata().get("doc_id"))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            // ② 取历史提问（不含当前这轮）
+            List<String> historyQueries = extractRecentQueries(
+                    conversationId, recommendationProperties.getRecentQueryCount());
+
+            // ③ 检索推荐
+            List<RecommendedDoc> recs = recommendationService.recommend(
+                    userInput, historyQueries, excludeIds, filter);
+
+            if (recs.isEmpty()) {
+                log.info("[D52] 无推荐结果，跳过");
+                return Flux.empty();
+            }
+
+            // ④ 渲染成文本块（作为 Flux 的单个元素推送）
+            String block = recommendationService.render(recs);
+            log.info("[D52] 追加 {} 条推荐: userId={}, query=[{}]",
+                    recs.size(), extractUserId(conversationId),
+                    truncate(userInput, 30));
+            return Flux.just(block);
+
+        } catch (Exception e) {
+            log.warn("[D52] 推荐失败，降级为空", e);
+            return Flux.empty();
+        }
+    }
+
+    /**
+     * 从 CHAT 里取最近 N 条用户消息（不含当前这轮）
+     * <p>
+     * <b>为什么排除最后一条</b>：
+     * 主流 complete 时，MessageChatMemoryAdvisor 已经把本轮的 user 写入 CHAT——
+     * 它和传入的 userInput 重复，留在 historyQueries 里会重复检索。
+     */
+    private List<String> extractRecentQueries(String conversationId, int n) {
+        try {
+            List<org.springframework.ai.chat.messages.Message> history =
+                    chatMemory.get(conversationId);
+            if (history == null || history.isEmpty()) {
+                return List.of();
+            }
+
+            List<String> userMsgs = history.stream()
+                    .filter(m -> "USER".equals(m.getMessageType().name()))
+                    .map(org.springframework.ai.chat.messages.Message::getText)
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            // 排除最后一条（当前这轮）
+            if (userMsgs.size() <= 1) {
+                return List.of();
+            }
+            List<String> previous = userMsgs.subList(0, userMsgs.size() - 1);
+
+            int from = Math.max(0, previous.size() - n);
+            return previous.subList(from, previous.size());
+
+        } catch (Exception e) {
+            log.warn("取历史提问失败，降级为空", e);
             return List.of();
         }
     }

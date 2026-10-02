@@ -77,8 +77,10 @@ public class CompactingChatMemoryAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
+        log.info("[ENTER] {} order={}", getName(), getOrder());
         compactIfNeeded(request);
-        return chain.nextStream(request);
+        return chain.nextStream(request)
+                .doOnComplete(() -> log.info("[EXIT]  {} order={}", getName(), getOrder()));
     }
 
     // ===================== 核心逻辑 =====================

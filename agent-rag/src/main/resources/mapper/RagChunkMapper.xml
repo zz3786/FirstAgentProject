@@ -19,6 +19,9 @@
         <result property="contentType" column="content_type"/>
         <result property="securityLevel"  column="security_level"/>
         <result property="status"         column="status"/>
+
+        <result column="page_number"  property="pageNumber"/>
+        <result column="total_chunks" property="totalChunks"/>
     </resultMap>
 
     <!-- ==================== 批量插入（入库时用） ==================== -->
@@ -27,12 +30,14 @@
         (doc_id, chunk_index, source, content, file_path,
         department, year, content_type,
         security_level, status,                          <!-- ★ 新增 -->
+        page_number,          <!-- ★ 新增 -->
+        total_chunks,         <!-- ★ 新增 -->
         created_at)
         VALUES
         <foreach collection="list" item="c" separator=",">
             (#{c.docId}, #{c.chunkIndex}, #{c.source}, #{c.content}, #{c.filePath},
             #{c.department}, #{c.year}, #{c.contentType},
-            #{c.securityLevel}, #{c.status},                 <!-- ★ 新增 -->
+            #{c.securityLevel}, #{c.status},#{item.pageNumber}, #{item.totalChunks}
             NOW())
         </foreach>
     </insert>
@@ -76,37 +81,51 @@
     <select id="fulltextSearchWithFilter" resultMap="BaseResultMap">
         SELECT
         id, doc_id, chunk_index, source, content, file_path,
-        department, year, content_type, security_level, status,   <!-- ★ 新增列 -->
-        created_at,
+        department, year, content_type, security_level, status,
+        page_number,total_chunks,created_at,
         MATCH(content) AGAINST(#{query} IN BOOLEAN MODE) AS score
         FROM rag_chunks
         WHERE MATCH(content) AGAINST(#{query} IN BOOLEAN MODE)
 
+        <!-- ★ 部门级可见性：
+              - department IN (用户部门) → 本部门文档，可见
+              - department IS NULL       → 公开文档，所有部门可见
+              - 其他部门文档 → 自动被 IN 排除 -->
         <if test="departments != null and departments.size() > 0">
-            AND department IN
+            AND (
+            department IN
             <foreach collection="departments" item="d" open="(" close=")" separator=",">
                 #{d}
             </foreach>
+            )
         </if>
+
+        <!-- ★ 年份：null = 不限年份，放行 -->
         <if test="yearFrom != null">
-            AND year &gt;= #{yearFrom}
+            AND (year &gt;= #{yearFrom} OR year = 0 )
         </if>
         <if test="yearTo != null">
-            AND year &lt;= #{yearTo}
+            AND (year &lt;= #{yearTo} OR year = 0)
         </if>
+
+        <!-- ★ 内容类型：null = 未分类，放行 -->
         <if test="docTypes != null and docTypes.size() > 0">
-            AND content_type IN
+            AND (
+            content_type IN
             <foreach collection="docTypes" item="t" open="(" close=")" separator=",">
                 #{t}
             </foreach>
+            OR content_type IS NULL
+            )
         </if>
 
-        <!-- ★ D46 新增：密级过滤（<= 用户密级） -->
+        <!-- ★ 密级：与部门正交的第二道权限，null 拒绝 -->
         <if test="securityLevelMax != null">
+            AND security_level IS NOT NULL
             AND security_level &lt;= #{securityLevelMax}
         </if>
 
-        <!-- ★ D46 新增：状态过滤 -->
+        <!-- ★ 状态：null 拒绝（防作废/草稿漏出） -->
         <if test="statuses != null and statuses.size() > 0">
             AND status IN
             <foreach collection="statuses" item="s" open="(" close=")" separator=",">
@@ -117,7 +136,6 @@
         ORDER BY score DESC
         LIMIT #{topK}
     </select>
-
 
     <!-- 按 docId 删除 -->
     <delete id="deleteByDocId">

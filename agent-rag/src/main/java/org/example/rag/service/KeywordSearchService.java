@@ -147,6 +147,14 @@ public class KeywordSearchService {
             metadata.put("status", chunk.getStatus());
         }
 
+        // ★ 新增：页码 + 总切片数
+        if (chunk.getPageNumber() != null) {
+            metadata.put("page_number", chunk.getPageNumber());
+        }
+        if (chunk.getTotalChunks() != null) {
+            metadata.put("total_chunks", chunk.getTotalChunks());
+        }
+
         return new Document(chunk.getContent(), metadata);
     }
 }

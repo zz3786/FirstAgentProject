@@ -48,7 +48,9 @@ public class MemoryRetrievalAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
-        return chain.nextStream(enrich(request));
+        log.info("[ENTER] {} order={}", getName(), getOrder());
+        return chain.nextStream(enrich(request))
+                .doOnComplete(() -> log.info("[EXIT]  {} order={}", getName(), getOrder()));
     }
 
     private ChatClientRequest enrich(ChatClientRequest request) {

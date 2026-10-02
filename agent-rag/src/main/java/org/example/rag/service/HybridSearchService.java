@@ -89,6 +89,17 @@ public class HybridSearchService {
 
     /**
      * 混合检索主入口（带个性化画像）
+     * @param query
+     * @param filter
+     * @param profile
+     * @return
+     */
+    public List<Document> search(String query, RagFilter filter, RetrievalProfile profile) {
+        return search(query, filter, profile, ragProperties.getTopK());
+    }
+
+    /**
+     * 混合检索主入口（带个性化画像）+topK 用于推荐场景——需要比回答时更大的召回量
      * <p>
      * ★ D49：权重倾斜 + 画像加分都在这条路径上生效。
      *
@@ -96,10 +107,9 @@ public class HybridSearchService {
      * @param filter  过滤条件（硬权限 + 软筛选）
      * @param profile 检索画像（空画像退化为全局默认权重）
      */
-    public List<Document> search(String query, RagFilter filter, RetrievalProfile profile) {
+    public List<Document> search(String query, RagFilter filter, RetrievalProfile profile, int topK) {
         StopWatch sw = new StopWatch("RAG检索");
 
-        int topK = ragProperties.getTopK();
         int recallSize = topK * ragProperties.getRecallMultiplier();
 
         // ① 向量检索（带过滤）
@@ -112,12 +122,13 @@ public class HybridSearchService {
         List<Document> keywordResults = keywordSearchService.search(query, recallSize, filter);
         sw.stop();
 
-        log.info("混合检索：向量 {} 条，关键词 {} 条，过滤={}，画像={}",
+        log.info("混合检索：向量 {} 条，关键词 {} 条，过滤={}，画像={}，topK={}",
                 vectorResults.size(), keywordResults.size(),
                 filter == null || filter.isEmpty() ? "无" : filter,
-                profile == null || profile.isEmpty() ? "无" : profile);
+                profile == null || profile.isEmpty() ? "无" : profile,
+                topK);
 
-        // ③ 融合（★ 传入 profile）
+        // ③ 融合
         sw.start("融合");
         List<Document> fused;
         if ("weighted".equalsIgnoreCase(ragProperties.getFusionStrategy())) {

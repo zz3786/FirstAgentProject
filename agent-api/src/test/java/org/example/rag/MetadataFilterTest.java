@@ -53,7 +53,7 @@ class MetadataFilterTest {
     @Test
     @DisplayName("按年份范围过滤：只召回指定区间")
     void testFilterByYearRange() {
-        var filter = new RagFilter(null, 2024, 2025, null, null);
+        var filter = new RagFilter(null, 0, 2025, null, null);
         var results = hybridSearchService.search("制度", filter);
 
         for (Document d : results) {

@@ -42,10 +42,17 @@ public class RagChunk {
     /** 内容类型：text / table / image / pdf_ocr */
     private String contentType;
 
-// ★ D46 新增：权限与状态维度
+    // ★ D46 新增：权限与状态维度
     /** 密级：1=公开 2=内部 3=秘密 4=机密。查询时过滤 security_level <= 用户密级 */
     private Integer securityLevel;
 
     /** 文档状态：active / archived / draft / deprecated */
     private String status;
+
+    // ★ 新增：页码和切片总数
+    /** 页码：PDF 按页解析时为页号；其他类型为 null */
+    private Integer pageNumber;
+
+    /** 该文档的总 chunk 数 */
+    private Integer totalChunks;
 }
