@@ -3,6 +3,7 @@ package org.example.rag.service;
 import lombok.extern.slf4j.Slf4j;
 import org.example.rag.config.RagProperties;
 import org.example.rag.model.RagFilter;
+import org.example.rag.model.RetrievalProfile;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -44,14 +45,14 @@ import java.util.Map;
 @Service
 public class HybridSearchService {
 
-
     private final VectorStore vectorStore;
     private final KeywordSearchService keywordSearchService;
     private final RemoteRerankService remoteRerankService;
     private final RagProperties ragProperties;
 
     public HybridSearchService(VectorStore vectorStore,
-                               KeywordSearchService keywordSearchService, RemoteRerankService remoteRerankService,
+                               KeywordSearchService keywordSearchService,
+                               RemoteRerankService remoteRerankService,
                                RagProperties ragProperties) {
         this.vectorStore = vectorStore;
         this.keywordSearchService = keywordSearchService;
@@ -63,64 +64,70 @@ public class HybridSearchService {
         return s == null ? "" : (s.length() > max ? s.substring(0, max) + "..." : s);
     }
 
+    // ==================== 三个入口 ====================
+
     /**
-     * 混合检索（主入口）
-     * 用户提问
-     *     ↓
-     * ① 向量检索（Qdrant）→ 20 条候选
-     * ② 关键词检索（MySQL）→ 20 条候选
-     *     ↓
-     * ③ 加权融合（w_vec=0.7, w_kw=0.3）
-     *     ↓
-     * ④ TEI 精排 → Top-5
-     *     ↓
-     * ⑤ Prompt 注入 → DeepSeek
-     * @param query 用户问题
-     * @return Top-K 融合后的 Document 列表
+     * 混合检索（主入口）——无过滤、无画像
+     * <p>
+     * 最简调用——委托给三参版本，传入 empty 画像。
      */
     public List<Document> search(String query) {
-        return search(query, null);
+        return search(query, null, RetrievalProfile.empty());
     }
 
-
     /**
-     * 混合检索（主入口）—— D46 支持元数据过滤
+     * 混合检索（主入口）——D46 支持元数据过滤，无个性化
+     * <p>
+     * 兼容旧调用——委托给三参版本，传入 empty 画像。
      *
      * @param query  用户问题
      * @param filter 过滤条件（null 或 empty 表示不过滤）
-     * @return Top-K 融合后的 Document 列表
      */
     public List<Document> search(String query, RagFilter filter) {
+        return search(query, filter, RetrievalProfile.empty());
+    }
+
+    /**
+     * 混合检索主入口（带个性化画像）
+     * <p>
+     * ★ D49：权重倾斜 + 画像加分都在这条路径上生效。
+     *
+     * @param query   用户问题
+     * @param filter  过滤条件（硬权限 + 软筛选）
+     * @param profile 检索画像（空画像退化为全局默认权重）
+     */
+    public List<Document> search(String query, RagFilter filter, RetrievalProfile profile) {
         StopWatch sw = new StopWatch("RAG检索");
 
         int topK = ragProperties.getTopK();
         int recallSize = topK * ragProperties.getRecallMultiplier();
 
-        // ① 向量检索（★ 带过滤）
+        // ① 向量检索（带过滤）
         sw.start("向量检索");
         List<Document> vectorResults = vectorSearch(query, recallSize, filter);
         sw.stop();
 
-        // ② 关键词检索（★ 带过滤）
+        // ② 关键词检索（带过滤）
         sw.start("关键词检索");
         List<Document> keywordResults = keywordSearchService.search(query, recallSize, filter);
         sw.stop();
 
-        log.info("混合检索：向量 {} 条，关键词 {} 条，过滤条件={}",
+        log.info("混合检索：向量 {} 条，关键词 {} 条，过滤={}，画像={}",
                 vectorResults.size(), keywordResults.size(),
-                filter == null || filter.isEmpty() ? "无" : filter);
+                filter == null || filter.isEmpty() ? "无" : filter,
+                profile == null || profile.isEmpty() ? "无" : profile);
 
-        // ③ 融合（不变）
-        sw.start("RRF融合");
+        // ③ 融合（★ 传入 profile）
+        sw.start("融合");
         List<Document> fused;
         if ("weighted".equalsIgnoreCase(ragProperties.getFusionStrategy())) {
-            fused = weightedFuse(vectorResults, keywordResults, topK);
+            fused = weightedFuse(vectorResults, keywordResults, topK, profile);
         } else {
             fused = rrfFuse(vectorResults, keywordResults, topK);
         }
         sw.stop();
 
-        // ④ TEI 精排（不变）
+        // ④ TEI 精排
         sw.start("TEI精排");
         List<Document> reranked = remoteRerankService.rerank(query, fused, topK);
         sw.stop();
@@ -134,35 +141,7 @@ public class HybridSearchService {
         return reranked;
     }
 
-
-
     // ==================== 向量检索 ====================
-
-    /**
-
-     * @param query
-     * @param topK
-     * @return
-     */
-    private List<Document> vectorSearch(String query, int topK) {
-        try {
-            SearchRequest.Builder builder = SearchRequest.builder()
-                    .query(query)
-                    .topK(topK);
-
-            // 相似度阈值（>0 才启用）
-            if (ragProperties.getSimilarityThreshold() > 0) {
-                builder.similarityThreshold(ragProperties.getSimilarityThreshold());
-            }
-
-            List<Document> results = vectorStore.similaritySearch(builder.build());
-            return results != null ? results : List.of();
-
-        } catch (Exception e) {
-            log.error("向量检索失败, query={}", query, e);
-            return List.of();
-        }
-    }
 
     /**
      * 向量检索（带过滤）
@@ -172,23 +151,17 @@ public class HybridSearchService {
      * <b>为什么过滤放在向量检索阶段而非检索后</b>：
      * Qdrant 在 HNSW 图遍历时就能跳过不匹配的点，
      * 不需要先召回 Top-K 再丢弃——这在高并发下节省大量计算。
-     *
-\    * ① 提取 query 字符串
-     *    "家庭医生签约注意事项"
-     *         ↓
-     * ② 调用 EmbeddingModel.embed(query)     ← ★ 这里把问题转向量
-     *         ↓
-     *    阿里云 text-embedding-v4 返回 [0.12, -0.34, ...] (1024 维)
-     *         ↓
+     * <p>
+     * <b>执行流程</b>：
+     * <pre>
+     * ① 提取 query 字符串（如"家庭医生签约注意事项"）
+     * ② 调用 EmbeddingModel.embed(query)     ← 框架自动把问题转向量
      * ③ 拿这个向量去 Qdrant 检索
      *    POST /collections/agent-rag/points/search
-     *    body: { "vector": [0.12, -0.34, ...], "limit": 10 }
-     *         ↓
+     *    body: { "vector": [0.12, -0.34, ...], "limit": 10, "filter": {...} }
      * ④ Qdrant 返回 Top-K 相似片段
-     *         ↓
-     * ⑤ 包装成 List<Document> 返回给你
-     *
-     * 关键：第 ② 步是框架自动做的——你不用手动调 embedding。
+     * ⑤ 包装成 List&lt;Document&gt; 返回
+     * </pre>
      */
     private List<Document> vectorSearch(String query, int topK, RagFilter filter) {
         try {
@@ -200,7 +173,7 @@ public class HybridSearchService {
                 builder.similarityThreshold(ragProperties.getSimilarityThreshold());
             }
 
-            // ★ 施加过滤条件
+            // 施加过滤条件
             if (filter != null && !filter.isEmpty()) {
                 Filter.Expression expr = filter.toExpression();
                 if (expr != null) {
@@ -217,9 +190,6 @@ public class HybridSearchService {
         }
     }
 
-
-
-
     // ==================== RRF 融合 ====================
 
     /**
@@ -235,11 +205,10 @@ public class HybridSearchService {
     private List<Document> rrfFuse(List<Document> vectorResults,
                                    List<Document> keywordResults,
                                    int topK) {
-        // key = docId_chunkIndex，用于去重
         Map<String, Double> rrfScores = new LinkedHashMap<>();
         Map<String, Document> docMap = new HashMap<>();
 
-        // ① 向量检索的 RRF 贡献
+        // 向量检索的 RRF 贡献
         for (int rank = 0; rank < vectorResults.size(); rank++) {
             Document doc = vectorResults.get(rank);
             String key = buildKey(doc);
@@ -248,7 +217,7 @@ public class HybridSearchService {
             docMap.putIfAbsent(key, doc);
         }
 
-        // ② 关键词检索的 RRF 贡献
+        // 关键词检索的 RRF 贡献
         for (int rank = 0; rank < keywordResults.size(); rank++) {
             Document doc = keywordResults.get(rank);
             String key = buildKey(doc);
@@ -257,13 +226,11 @@ public class HybridSearchService {
             docMap.putIfAbsent(key, doc);
         }
 
-        // ③ 按 RRF 分数降序排列，取 Top-K
         return rrfScores.entrySet().stream()
                 .sorted((a, b) -> Double.compare(b.getValue(), a.getValue()))
                 .limit(topK)
                 .map(e -> {
                     Document doc = docMap.get(e.getKey());
-                    // 把 RRF 分数写进 metadata，便于调试
                     doc.getMetadata().put("rrf_score", e.getValue());
                     return doc;
                 })
@@ -281,9 +248,10 @@ public class HybridSearchService {
         return docId + "_" + chunkIdx;
     }
 
+    // ==================== 加权融合 ====================
 
     /**
-     * 加权融合（归一化线性加权）
+     * 加权融合（归一化线性加权 + 个性化画像）
      * <p>
      * ═══════════════════════════════════════════════════════════════
      * 【为什么需要这个方法】
@@ -300,97 +268,131 @@ public class HybridSearchService {
      * ═══════════════════════════════════════════════════════════════
      * ① 归一化向量分数 → [0,1]，并反转（distance 越小越好 → 反转后越大越好）
      * ② 归一化关键词分数 → [0,1]（score 越大越好，无需反转）
-     * ③ 加权求和：fused = wVec × norm_vec + wKw × norm_kw
-     * ④ 降序排序取 Top-K
-     * <p>
-     * ═══════════════════════════════════════════════════════════════
-     * 【举例】（wVec=0.7, wKw=0.3）
-     * ═══════════════════════════════════════════════════════════════
-     * 向量路：docA(distance=0.15), docB(0.35), docC(0.80)
-     * 关键词路：docB(score=3.28), docD(1.50), docA(0.90)
-     * <p>
-     * 归一化后（都变成"越大越好"）：
-     * ┌──────┬──────────────┬──────────────┐
-     * │ doc  │ 向量归一化   │ 关键词归一化 │
-     * ├──────┼──────────────┼──────────────┤
-     * │ docA │    1.00      │    0.00      │
-     * │ docB │    0.69      │    1.00      │
-     * │ docC │    0.00      │     -        │
-     * │ docD │     -        │    0.25      │
-     * └──────┴──────────────┴──────────────┘
-     * <p>
-     * 加权求和：
-     * docA: 0.7×1.00 + 0.3×0.00 = 0.70
-     * docB: 0.7×0.69 + 0.3×1.00 = 0.78  ← 两路都命中，最高
-     * docC: 0.7×0.00            = 0.00
-     * docD:           0.3×0.25  = 0.075
-     * <p>
-     * 最终排序：docB > docA > docD > docC
+     * ③ 权重计算——叠加画像偏移
+     * ④ 加权求和：fused = wVec × norm_vec + wKw × norm_kw
+     * ⑤ 画像加分——对符合偏好的文档 × boost
+     * ⑥ 降序排序取 Top-K
      *
      * @param vectorResults  向量检索结果（metadata 里含 "distance" 字段）
      * @param keywordResults 关键词检索结果（metadata 里含 "score" 字段）
      * @param topK           最终返回条数
-     * @return 加权融合后的 Top-K 文档
+     * @param profile        检索画像（null 或空画像 = 无个性化）
      */
     private List<Document> weightedFuse(List<Document> vectorResults,
                                         List<Document> keywordResults,
-                                        int topK) {
+                                        int topK,
+                                        RetrievalProfile profile) {
 
-        // ① 归一化向量分数
-        //    distance 越小越好 → reverse=true → 反转后 1.0 表示最相关
-        Map<String, Double> vectorScores = normalize(
-                vectorResults, "distance", true);
+        // ① 归一化
+        Map<String, Double> vectorScores = normalize(vectorResults, "distance", true);
+        Map<String, Double> keywordScores = normalize(keywordResults, "score", false);
 
-        // ② 归一化关键词分数
-        //    score 越大越好 → reverse=false → 1.0 表示最相关
-        Map<String, Double> keywordScores = normalize(
-                keywordResults, "score", false);
+        // ② 权重计算——叠加画像偏移
+        double baseVec = ragProperties.getVectorWeight();
+        double baseKw = ragProperties.getKeywordWeight();
+
+        // ★ 应用画像偏移——只调 w_vec，w_kw = 1 - w_vec
+        double wVec = (profile == null || profile.isEmpty())
+                ? baseVec
+                : profile.applyWeightBias(baseVec);
+        double wKw = 1.0 - wVec;
+
+        log.info("融合权重：base=({}, {}), adjusted=({}, {}), profile={}",
+                baseVec, baseKw,
+                String.format("%.2f", wVec), String.format("%.2f", wKw),
+                profile == null ? "null" : profile);
 
         // ③ 合并
-        //    fusedScores：key(docId_chunkIndex) → 加权总分
-        //    docMap：     key → Document 对象（保留原始文档，避免重复）
         Map<String, Double> fusedScores = new LinkedHashMap<>();
         Map<String, Document> docMap = new HashMap<>();
 
-        double wVec = ragProperties.getVectorWeight();
-        double wKw = ragProperties.getKeywordWeight();
-
-        // ---- 向量路贡献 ----
-        // 遍历向量路结果，把 wVec × 归一化分数 累加进 fusedScores
         vectorResults.forEach(doc -> {
-            String key = buildKey(doc);                                // 唯一标识（docId_chunkIndex）
-            double normScore = vectorScores.getOrDefault(key, 0.0);    // 取归一化后的分数
-
-            // merge 的语义：
-            //   key 不存在 → 直接 put(key, wVec*normScore)
-            //   key 已存在 → 用 Double::sum 把新值累加到旧值上
+            String key = buildKey(doc);
+            double normScore = vectorScores.getOrDefault(key, 0.0);
             fusedScores.merge(key, wVec * normScore, Double::sum);
-
-            // putIfAbsent：首次遇到该 doc 时存入，避免重复覆盖
             docMap.putIfAbsent(key, doc);
         });
 
-        // ---- 关键词路贡献 ----
-        // 注意：这里同样用 merge 累加 —— 两路都命中的文档分数会叠加，排名自然更高
         keywordResults.forEach(doc -> {
             String key = buildKey(doc);
             double normScore = keywordScores.getOrDefault(key, 0.0);
-            fusedScores.merge(key, wKw * normScore, Double::sum);      // 累加到已有分数
+            fusedScores.merge(key, wKw * normScore, Double::sum);
             docMap.putIfAbsent(key, doc);
         });
 
-        // ④ 按总分降序排序，取 Top-K
+        // ④ ★ 画像加分
+        applyProfileBoost(fusedScores, docMap, profile);
+
+        // ⑤ 排序取 Top-K
         return fusedScores.entrySet().stream()
-                .sorted((a, b) -> Double.compare(b.getValue(), a.getValue()))   // 按 value 降序
-                .limit(topK)                                                     // 取前 K 个
+                .sorted((a, b) -> Double.compare(b.getValue(), a.getValue()))
+                .limit(topK)
                 .map(e -> {
                     Document doc = docMap.get(e.getKey());
-                    // 把融合分数写回 metadata —— 便于调试、日志、前端展示
                     doc.getMetadata().put("fused_score", e.getValue());
                     return doc;
                 })
                 .toList();
     }
+
+    /**
+     * 画像加分——对符合偏好的文档乘以系数
+     * <p>
+     * <b>为什么是"加分"而非"硬过滤"</b>：
+     * 硬过滤会把不符合偏好的相关文档直接排除——降低召回率。
+     * 加分是"排序上优先"——用户仍能看到全部结果，只是排在最前的更符合偏好。
+     * <p>
+     * <b>为什么加分系数有上限（1.20）</b>：
+     * 防止"用户问过财务部，永远只看到财务部"——20% 的加权足以改变排序，
+     * 但不足以完全屏蔽其他部门。
+     */
+    private void applyProfileBoost(Map<String, Double> fusedScores,
+                                   Map<String, Document> docMap,
+                                   RetrievalProfile profile) {
+        if (profile == null || profile.isEmpty()) {
+            return;
+        }
+
+        double boost = profile.filterBoost();
+        if (boost <= 1.0) {
+            return;
+        }
+
+        int boostedCount = 0;
+        for (Map.Entry<String, Double> entry : fusedScores.entrySet()) {
+            Document doc = docMap.get(entry.getKey());
+            if (doc == null) continue;
+
+            boolean matched = false;
+
+            // 部门匹配
+            if (profile.hasPreferredDepartments()) {
+                Object dept = doc.getMetadata().get("department");
+                if (dept != null && profile.preferredDepartments().contains(dept.toString())) {
+                    matched = true;
+                }
+            }
+
+            // 内容类型匹配
+            if (!matched && !profile.preferredDocTypes().isEmpty()) {
+                Object type = doc.getMetadata().get("content_type");
+                if (type != null && profile.preferredDocTypes().contains(type.toString())) {
+                    matched = true;
+                }
+            }
+
+            if (matched) {
+                entry.setValue(entry.getValue() * boost);
+                boostedCount++;
+            }
+        }
+
+        if (boostedCount > 0) {
+            log.info("画像加分：{} 条文档 × {}", boostedCount, boost);
+        }
+    }
+
+    // ==================== 归一化 ====================
 
     /**
      * Min-Max 归一化：把一组分数映射到 [0, 1]
@@ -420,7 +422,6 @@ public class HybridSearchService {
     private Map<String, Double> normalize(List<Document> docs,
                                           String scoreField,
                                           boolean reverse) {
-        // 空列表——直接返回空 Map
         if (docs.isEmpty()) {
             return Map.of();
         }
@@ -430,7 +431,7 @@ public class HybridSearchService {
         for (Document doc : docs) {
             Object scoreObj = doc.getMetadata().get(scoreField);
             if (scoreObj == null) {
-                continue;                    // 跳过无分数的文档
+                continue;
             }
             raw.put(buildKey(doc), ((Number) scoreObj).doubleValue());
         }
@@ -449,12 +450,10 @@ public class HybridSearchService {
         double range = max - min;
 
         if (range == 0) {
-            // 所有分数相同 —— 无法归一化 —— 统一设为 1.0（都一样相关）
             raw.keySet().forEach(k -> normalized.put(k, 1.0));
         } else {
             raw.forEach((k, v) -> {
-                double norm = (v - min) / range;               // 映射到 [0,1]
-                // reverse=true 时反转：1.0 - norm，把"越小越好"变成"越大越好"
+                double norm = (v - min) / range;
                 normalized.put(k, reverse ? 1.0 - norm : norm);
             });
         }

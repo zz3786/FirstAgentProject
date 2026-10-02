@@ -5,8 +5,11 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.example.cache.service.SemanticCacheService;
 import org.example.rag.model.RagFilter;
+import org.example.rag.model.RetrievalProfile;
 import org.example.rag.service.ClarificationService;
 import org.example.rag.service.HybridSearchService;
+import org.example.rag.service.RetrievalProfileService;
+import org.example.rag.tools.RetrievalPreferenceTools;
 import org.example.tools.SafeToolCallback;
 import org.example.tools.*;
 import org.springframework.ai.chat.client.ChatClient;
@@ -22,6 +25,7 @@ import reactor.core.publisher.Flux;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Agent 核心业务服务
@@ -79,6 +83,9 @@ public class ChatService {
     /** 澄清判定——D47 核心，判断检索是否"模糊" */
     private final ClarificationService clarificationService;
 
+    /** D51 个性化检索 核心，" */
+    private final RetrievalProfileService retrievalProfileService;
+
     /**
      * 会话记忆
      * <p>
@@ -125,6 +132,9 @@ public class ChatService {
     /** 长期记忆：保存跨会话的重要事实 */
     @Resource private MemoryTools memoryTools;
 
+    /** 个性化检索：保存跨会话的重要事实 */
+    @Resource private RetrievalPreferenceTools retrievalPreferenceTools;
+
     // ==================== 构造函数 ====================
 
     /**
@@ -146,12 +156,14 @@ public class ChatService {
             SemanticCacheService semanticCacheService,
             HybridSearchService hybridSearchService,
             ClarificationService clarificationService,
+            RetrievalProfileService retrievalProfileService,
             @Qualifier("redisChatMemory") ChatMemory chatMemory) {
         this.chatClientWithMemory = chatClientWithMemory;
         this.chatClientWithoutMemory = chatClientWithoutMemory;
         this.semanticCacheService = semanticCacheService;
         this.hybridSearchService = hybridSearchService;
         this.clarificationService = clarificationService;
+        this.retrievalProfileService = retrievalProfileService;
         this.chatMemory = chatMemory;
     }
 
@@ -182,7 +194,8 @@ public class ChatService {
                         riskTools,
                         entertainmentTools,
                         preferenceTools,
-                        memoryTools
+                        memoryTools,
+                        retrievalPreferenceTools
                 )
                 .build()
                 .getToolCallbacks();
@@ -291,10 +304,13 @@ public class ChatService {
             return Flux.just(cachedAnswer);
         }
 
+        // ★ D51：读取检索画像
+        RetrievalProfile profile = retrievalProfileService.get(tenantId);
+
         // ==================== ② D47 前置 RAG 检索 ====================
         // 提前做一次检索——供澄清判定和 RagAdvisor 共用，避免重复
         // 检索失败时降级为空列表——不阻断主流程
-        final List<Document> prefetchedDocs = fetchPrefetchedDocs(userInput, effectiveFilter);
+        final List<Document> prefetchedDocs = fetchPrefetchedDocs(userInput, effectiveFilter,profile);
 
         // ==================== ③ D47 澄清判定 ====================
         // 命中模糊条件 → 直接返回反问文本，不调 LLM
@@ -326,6 +342,7 @@ public class ChatService {
                     //   即使是空 List 也传——表示"确实没结果"，RagAdvisor 直接跳过
                     a.param("prefetched_docs", prefetchedDocs);
                 })
+                .toolContext(Map.of("userId", tenantId))       // ★ 关键——把 userId 传给工具
                 .toolCallbacks(wrappedCallbacks)
                 .stream()
                 .content()
@@ -458,9 +475,9 @@ public class ChatService {
      * @param filter 过滤条件
      * @return 检索结果；失败时返回空列表（不阻断主流程）
      */
-    private List<Document> fetchPrefetchedDocs(String query, RagFilter filter) {
+    private List<Document> fetchPrefetchedDocs(String query, RagFilter filter, RetrievalProfile profile) {
         try {
-            List<Document> docs = hybridSearchService.search(query, filter);
+            List<Document> docs = hybridSearchService.search(query, filter,profile);
             log.info("🔍 [前置检索] query=[{}] 返回 {} 条",
                     truncate(query, 30), docs.size());
             return docs;
