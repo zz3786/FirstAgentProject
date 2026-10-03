@@ -4,14 +4,11 @@ import org.example.advisor.*;
 import org.example.memory.LongTermMemoryService;
 import org.example.preference.UserPreferenceService;
 import org.example.rag.advisor.RagAdvisor;
-import org.example.rag.config.RagProperties;
 import org.example.rag.service.HybridSearchService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -76,14 +73,16 @@ public class ChatClientConfig {
                         // ⑤ RAG 检索
                         new RagAdvisor(hybridSearchService),
                         // ⑥ 长期记忆检索（LTM 关键词路，order=200）
-                        new MemoryRetrievalAdvisor(longTermMemoryService),
+                        new LongTermMemoryAdvisor(longTermMemoryService),
                         // ⑦ 对话历史检索（向量语义路，order=210）
                         conversationRetrievalAdvisor,
                         // ⑧ 工具日志
                         new ToolLoggingAdvisor(),
                         // ⑨ 对话历史写入（order=250，链尾）
-                        conversationMemoryAdvisor
-                )
+                        conversationMemoryAdvisor,
+                        //提示词日志
+                        new DebugPromptAdvisor()
+                        )
                 .build();
     }
 

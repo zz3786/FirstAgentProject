@@ -310,7 +310,7 @@ public class ChatService {
         // ★ D53：构造过滤维度 Map
         Map<String, Object> filterDims = buildFilterDims(effectiveFilter);
 
-// ① 语义缓存查询
+        // ① 语义缓存查询
         String cachedAnswer = semanticCacheService.lookup(userInput, tenantId, filterDims);
         if (cachedAnswer != null) {
             log.info("✅ [缓存命中] query=[{}]", truncate(userInput, 30));

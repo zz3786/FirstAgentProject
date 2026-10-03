@@ -12,7 +12,6 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
@@ -21,15 +20,15 @@ import java.util.List;
  * D19	9/26	周六	记忆检索	基于当前问题检索相关历史记忆片段
  * 长期记忆
  */
-public class MemoryRetrievalAdvisor implements CallAdvisor, StreamAdvisor {
+public class LongTermMemoryAdvisor implements CallAdvisor, StreamAdvisor {
 
-    private static final Logger log = LoggerFactory.getLogger(MemoryRetrievalAdvisor.class);
+    private static final Logger log = LoggerFactory.getLogger(LongTermMemoryAdvisor.class);
     private static final int TOP_K = 3;
 
-    private final LongTermMemoryService memoryService;
+    private final LongTermMemoryService longTermMemoryService;
 
-    public MemoryRetrievalAdvisor(LongTermMemoryService memoryService) {
-        this.memoryService = memoryService;
+    public LongTermMemoryAdvisor(LongTermMemoryService longTermMemoryService) {
+        this.longTermMemoryService = longTermMemoryService;
     }
 
     @Override
@@ -72,7 +71,7 @@ public class MemoryRetrievalAdvisor implements CallAdvisor, StreamAdvisor {
             return request;
         }
 
-        List<String> hits = memoryService.search(userId, query, TOP_K);
+        List<String> hits = longTermMemoryService.search(userId, query, TOP_K);
         if (hits.isEmpty()) {
             return request;
         }
