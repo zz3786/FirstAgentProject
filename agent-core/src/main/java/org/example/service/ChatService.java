@@ -138,7 +138,7 @@ public class ChatService {
     @Resource private PreferenceTools preferenceTools;
 
     /** 长期记忆：保存跨会话的重要事实 */
-    @Resource private MemoryTools memoryTools;
+    @Resource private LongMemoryTools longMemoryTools;
 
     /** 个性化检索：保存跨会话的重要事实 */
     @Resource private RetrievalPreferenceTools retrievalPreferenceTools;
@@ -207,7 +207,7 @@ public class ChatService {
                         riskTools,
                         entertainmentTools,
                         preferenceTools,
-                        memoryTools,
+                        longMemoryTools,
                         retrievalPreferenceTools,
                         interestTools
 

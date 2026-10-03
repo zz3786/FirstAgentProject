@@ -9,11 +9,11 @@ import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
-public class MemoryTools {
+public class LongMemoryTools {
 
     private final LongTermMemoryService memoryService;
 
-    public MemoryTools(LongTermMemoryService memoryService) {
+    public LongMemoryTools(LongTermMemoryService memoryService) {
         this.memoryService = memoryService;
     }
 
