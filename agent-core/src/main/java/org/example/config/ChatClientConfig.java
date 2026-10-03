@@ -58,10 +58,11 @@ public class ChatClientConfig {
             UserPreferenceService preferenceService,
             LongTermMemoryService longTermMemoryService,
             HybridSearchService hybridSearchService,
-            // ★ D50 新增两个参数
             ConversationRetrievalAdvisor conversationRetrievalAdvisor,
-            ConversationMemoryAdvisor conversationMemoryAdvisor) {
+            ConversationMemoryAdvisor conversationMemoryAdvisor,
+            UserInterestAdvisor userInterestAdvisor) {
 
+        // ⑩ ⑪ ⑫
         return ChatClient.builder(chatModel)
                 .defaultAdvisors(
                         // ① 会话记忆
@@ -70,15 +71,17 @@ public class ChatClientConfig {
                         compactingAdvisor,
                         // ③ 用户偏好
                         new PreferenceAdvisor(preferenceService),
-                        // ④ RAG 检索
+                        // ④ 用户画像
+                        userInterestAdvisor,
+                        // ⑤ RAG 检索
                         new RagAdvisor(hybridSearchService),
-                        // ⑤ 长期记忆检索（LTM 关键词路，order=200）
+                        // ⑥ 长期记忆检索（LTM 关键词路，order=200）
                         new MemoryRetrievalAdvisor(longTermMemoryService),
-                        // ⑥ ★ D50 对话历史检索（向量语义路，order=210）
+                        // ⑦ 对话历史检索（向量语义路，order=210）
                         conversationRetrievalAdvisor,
-                        // ⑦ 工具日志
+                        // ⑧ 工具日志
                         new ToolLoggingAdvisor(),
-                        // ⑧ ★ D50 对话历史写入（order=250，链尾）
+                        // ⑨ 对话历史写入（order=250，链尾）
                         conversationMemoryAdvisor
                 )
                 .build();

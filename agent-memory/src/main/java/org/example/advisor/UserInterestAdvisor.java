@@ -1,10 +1,8 @@
 package org.example.advisor;
 
-import org.example.memory.LongTermMemoryService;
+import lombok.extern.slf4j.Slf4j;
+import org.example.interest.UserInterestService;
 import org.example.utils.PromptUtils;
-import org.example.utils.SensitiveDataMasker;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -15,31 +13,37 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.publisher.Flux;
 
-import java.util.List;
-
 /**
- * D19	9/26	周六	记忆检索	基于当前问题检索相关历史记忆片段
- * 长期记忆
+ * D53 用户兴趣标签注入 Advisor
+ * <p>
+ * <b>执行顺序</b>：order = 120
+ * <pre>
+ * CompactingChatMemoryAdvisor(50)
+ *   → PreferenceAdvisor(100)         ← 结构化偏好（city 等）
+ *   → UserInterestAdvisor(120)       ← 兴趣标签（本类）
+ *   → RagAdvisor(150)
+ *   → MemoryRetrievalAdvisor(200)
+ * </pre>
+ * <p>
+ * <b>读路径</b>——只注入、不写。写入由 InterestTools（模型主动调）完成。
  */
-public class MemoryRetrievalAdvisor implements CallAdvisor, StreamAdvisor {
+@Slf4j
+public class UserInterestAdvisor implements CallAdvisor, StreamAdvisor {
 
-    private static final Logger log = LoggerFactory.getLogger(MemoryRetrievalAdvisor.class);
-    private static final int TOP_K = 3;
+    private final UserInterestService interestService;
 
-    private final LongTermMemoryService memoryService;
-
-    public MemoryRetrievalAdvisor(LongTermMemoryService memoryService) {
-        this.memoryService = memoryService;
+    public UserInterestAdvisor(UserInterestService interestService) {
+        this.interestService = interestService;
     }
 
     @Override
     public String getName() {
-        return "MemoryRetrievalAdvisor";
+        return "UserInterestAdvisor";
     }
 
     @Override
     public int getOrder() {
-        return 200;   // 在 PreferenceAdvisor(100) 之后
+        return 120;
     }
 
     @Override
@@ -59,29 +63,15 @@ public class MemoryRetrievalAdvisor implements CallAdvisor, StreamAdvisor {
         if (cid == null) {
             return request;
         }
-
         String userId = extractUserId(cid.toString());
 
-        // 取最后一条用户消息作为检索 query
-        String query = request.prompt().getInstructions().stream()
-                .filter(m -> "USER".equals(m.getMessageType().name()))
-                .map(m -> m.getText())
-                .reduce((a, b) -> b)
-                .orElse("");
-        if (query.isBlank()) {
+        String text = interestService.renderAsSystemText(userId);
+        if (text.isBlank()) {
             return request;
         }
 
-        List<String> hits = memoryService.search(userId, query, TOP_K);
-        if (hits.isEmpty()) {
-            return request;
-        }
-
-        String injection = "相关历史记忆（供参考）：\n" + String.join("\n", hits);
-
-        log.info("检索到 {} 条记忆：\n{}", hits.size(), SensitiveDataMasker.mask(injection));
-
-        return PromptUtils.appendSystemMessage(request, injection);
+        log.info("D53 注入 {} 条兴趣标签: userId={}", text.lines().count() - 1, userId);
+        return PromptUtils.appendSystemMessage(request, text);
     }
 
     private String extractUserId(String conversationId) {

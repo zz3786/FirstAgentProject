@@ -1,6 +1,7 @@
 package org.example.advisor;
 
 import org.example.preference.UserPreferenceService;
+import org.example.utils.PromptUtils;
 import org.example.utils.SensitiveDataMasker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,9 +65,7 @@ public class PreferenceAdvisor implements CallAdvisor, StreamAdvisor {
         }
 
         log.info("注入用户偏好 [{}]:\n{}", userId, SensitiveDataMasker.mask(prefs));
-
-        Prompt newPrompt = request.prompt().augmentSystemMessage(prefs);
-        return request.mutate().prompt(newPrompt).build();
+        return PromptUtils.appendSystemMessage(request, prefs);
     }
 
     /** conversationId 约定格式 "userId:sessionTag"，取 userId 部分 */

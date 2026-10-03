@@ -46,11 +46,17 @@ public class SemanticCacheConfig {
         return RedisVectorStore.builder(jedis, embeddingModel)
                 .indexName(props.getIndexName())
                 .prefix(props.getKeyPrefix())
-                // ★★★ 关键：声明所有用于过滤的元数据字段
+                // ★★★ 关键：声明所有用于过滤的元数据字段 字段拆分——每个过滤维度独立字段
                 .metadataFields(
-                        MetadataField.tag("tenant_id"),      // 精确匹配（过滤用）
-                        MetadataField.text("question"),      // ★ 全文检索字段
-                        MetadataField.text("answer")         // ★ 全文检索字段
+                        MetadataField.tag("user_id"),           // 用户隔离
+                        MetadataField.tag("departments"),       // 数组：部门列表
+                        MetadataField.tag("year_from"),         // 数字转字符串：起始年
+                        MetadataField.tag("year_to"),           // 数字转字符串：结束年
+                        MetadataField.tag("doc_types"),         // 数组：文档类型
+                        MetadataField.tag("security_level"),    // 数字转字符串：密级
+                        MetadataField.tag("statuses"),          // 数组：状态
+                        MetadataField.text("question"),         // 全文检索字段
+                        MetadataField.text("answer")            // 全文检索字段
                 )
                 .initializeSchema(true)
                 .build();

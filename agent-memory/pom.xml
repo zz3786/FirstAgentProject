@@ -21,6 +21,10 @@
         <!-- 内部模块 -->
         <dependency>
             <groupId>org.example</groupId>
+            <artifactId>agent-common</artifactId>     <!-- ★ 新增 -->
+        </dependency>
+        <dependency>
+            <groupId>org.example</groupId>
             <artifactId>agent-tools</artifactId>
         </dependency>
 

@@ -3,6 +3,7 @@ package org.example.rag.advisor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.rag.model.RagFilter;
 import org.example.rag.service.HybridSearchService;
+import org.example.utils.PromptUtils;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -123,9 +124,7 @@ public class RagAdvisor implements CallAdvisor, StreamAdvisor {
         String context = buildContext(docs);
         String injection = buildRagPrompt(context);
         log.info("RAG 注入 {} 条资料（过滤={}）", docs.size(), filter);
-
-        Prompt newPrompt = request.prompt().augmentSystemMessage(injection);
-        return request.mutate().prompt(newPrompt).build();
+        return PromptUtils.appendSystemMessage(request, injection);
     }
 
     // ==================== 以下方法完全不变 ====================

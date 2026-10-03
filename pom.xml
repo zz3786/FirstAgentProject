@@ -16,13 +16,9 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <!--
-    1.tools：不依赖内部模块
-    2.memory：不依赖内部模块
-    3.agent-core：依赖 tools、memory
-    4.api：依赖 agent-core（传递依赖 tools、memory）
-    -->
+
     <modules>
+        <module>agent-common</module>
         <module>agent-tools</module>
         <module>agent-cache</module>
         <module>agent-memory</module>
@@ -60,7 +56,11 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-
+            <dependency>
+                <groupId>org.example</groupId>
+                <artifactId>agent-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.example</groupId>
                 <artifactId>agent-tools</artifactId>

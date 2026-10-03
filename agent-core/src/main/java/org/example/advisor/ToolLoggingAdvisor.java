@@ -61,6 +61,7 @@ public class ToolLoggingAdvisor implements CallAdvisor, StreamAdvisor {
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
         log.info("[ENTER] {} order={} —— 即将调用模型", getName(), getOrder());
+        log.error("★★★ ToolLoggingAdvisor 执行了 order={}", getOrder());
         logRequest(request);
         StringBuilder fullText = new StringBuilder();
         return chain.nextStream(request)

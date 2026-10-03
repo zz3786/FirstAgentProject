@@ -12,24 +12,6 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 
-/**
- * D50 对话历史向量化服务
- * <p>
- * <b>职责</b>：把每一轮对话（user + assistant）向量化后存入 Redis 向量库，
- * 并提供"按当前问题语义检索历史轮次"的能力。
- * <p>
- * <b>与 LongTermMemoryService 的定位区分</b>：
- * <pre>
- * ┌──────────────┬────────────────────┬────────────────────┐
- * │              │ LTM（关键词）      │ D50（向量）        │
- * ├──────────────┼────────────────────┼────────────────────┤
- * │ 写入时机     │ 模型主动 save      │ 每轮自动           │
- * │ 存储内容     │ 精炼事实一句话     │ 原始对话原文       │
- * │ 检索方式     │ 中文 2-gram 关键词 │ 向量语义           │
- * │ 类比         │ 笔记本上的"要点"   │ 完整录音档案       │
- * └──────────────┴────────────────────┴────────────────────┘
- * 两者互补共存，不替换。
- */
 @Slf4j
 @Service
 public class ConversationMemoryService {
@@ -46,15 +28,6 @@ public class ConversationMemoryService {
 
     // ==================== 写入 ====================
 
-    /**
-     * 保存一轮对话
-     *
-     * @param userId         用户 ID（从 conversationId 提取，不是前端传）
-     * @param conversationId 会话 ID（格式 userId:sessionTag）
-     * @param turnIndex      轮次序号（由调用方从 Redis INCR 生成）
-     * @param userMsg        用户原始消息
-     * @param assistantMsg   AI 完整回答
-     */
     public void saveTurn(String userId, String conversationId,
                          long turnIndex, String userMsg, String assistantMsg) {
         if (!props.isEnabled()) {
@@ -68,16 +41,18 @@ public class ConversationMemoryService {
             return;
         }
 
-        // ★ 落库前脱敏——与 LTM / USER_PREF 保持一致
         String safeUser = SensitiveDataMasker.mask(userMsg);
         String safeAssistant = SensitiveDataMasker.mask(
                 truncate(assistantMsg, props.getMaxAssistantChars()));
 
+        // ★ 关键：user_id 里的 '-' ':' 等是 RediSearch 保留字——统一转义成 '_'
+        String safeUserId = escapeRedisTag(userId);
+
         try {
             Document doc = new Document(
-                    safeUser,   // ★ Document.text = user 消息 → 检索命中率最高
+                    safeUser,
                     Map.of(
-                            "user_id", userId,
+                            "user_id", safeUserId,                  // ★ 存转义后的
                             "conversation_id", conversationId,
                             "turn_index", turnIndex,
                             "user_message", safeUser,
@@ -86,11 +61,10 @@ public class ConversationMemoryService {
                     )
             );
             conversationVectorStore.add(List.of(doc));
-            log.info("?? 对话记忆入库: userId={}, cid={}, turn={}",
+            log.info("📥 对话记忆入库: userId={}, cid={}, turn={}",
                     userId, conversationId, turnIndex);
 
         } catch (Exception e) {
-            // ★ 不向上抛——写入失败不影响主流程（用户问问题成功才是硬道理）
             log.warn("对话记忆入库失败（不影响主流程）: userId={}, cid={}",
                     userId, conversationId, e);
         }
@@ -98,25 +72,19 @@ public class ConversationMemoryService {
 
     // ==================== 检索 ====================
 
-    /**
-     * 检索与当前 query 语义相关的历史轮次
-     *
-     * @param userId          用户 ID（强制隔离）
-     * @param query           用户当前问题
-     * @param excludeConvId   要排除的会话 ID（通常传当前 cid，避免重复注入）
-     * @return 相关历史 Document 列表
-     */
     public List<Document> search(String userId, String query, String excludeConvId) {
         if (!props.isEnabled() || query == null || query.isBlank()) {
             return List.of();
         }
 
         try {
-            // ★ 强制按 user_id 隔离——这是安全底线
-            String filterExpr = "user_id == '" + userId + "'";
+            // ★ 关键：查询时同样转义——和存储保持一致的规则
+            String safeUserId = escapeRedisTag(userId);
+            String filterExpr = "user_id == '" + safeUserId + "'";
+
             if (props.isExcludeCurrentConversation()
                     && excludeConvId != null && !excludeConvId.isBlank()) {
-                filterExpr += " && conversation_id != '" + excludeConvId + "'";
+                filterExpr += " && conversation_id != '" + escapeRedisTag(excludeConvId) + "'";
             }
 
             SearchRequest request = SearchRequest.builder()
@@ -133,23 +101,35 @@ public class ConversationMemoryService {
                 return List.of();
             }
 
-            log.info("? 对话历史命中 {} 条: userId={}, query=[{}]",
+            log.info("✅ 对话历史命中 {} 条: userId={}, query=[{}]",
                     results.size(), userId, truncate(query, 30));
             return results;
 
         } catch (Exception e) {
-            // ★ 降级为空——检索失败不能阻断对话
             log.warn("对话记忆检索失败，降级为空", e);
             return List.of();
         }
     }
 
-    /** 兼容重载——不排除任何会话 */
     public List<Document> search(String userId, String query) {
         return search(userId, query, null);
     }
 
     // ==================== 辅助 ====================
+
+    /**
+     * RediSearch TAG 字段转义
+     * <p>
+     * RediSearch 里 TAG 类型的值——{@code - : , . | 空格} 等
+     * 都是保留字符，不转义会报 "Syntax error"。
+     * <p>
+     * 统一策略：非字母数字下划线 → 下划线。
+     * 存和查用同一规则——保证匹配一致。
+     */
+    private String escapeRedisTag(String s) {
+        if (s == null) return "default";
+        return s.replaceAll("[^a-zA-Z0-9_]", "_");
+    }
 
     private String truncate(String s, int max) {
         if (s == null) {

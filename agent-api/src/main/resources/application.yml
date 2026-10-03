@@ -143,6 +143,16 @@ app:
     prefix: "[RECOMMEND]"
     max-snippet-chars: 80
 
+  # ★ D53：用户兴趣标签
+  user-interest:
+    enabled: true
+    inject-top-n: 5
+    max-tags-per-user: 30
+    ttl-days: 180
+    weight-increment: 0.15
+    max-weight: 1.0
+    min-weight: 0.2
+
 
   compaction:
     max-messages-before-compaction: 10

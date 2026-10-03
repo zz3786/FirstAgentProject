@@ -2,6 +2,7 @@ package org.example.advisor;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.memory.ConversationMemoryService;
+import org.example.utils.PromptUtils;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -10,7 +11,6 @@ import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.document.Document;
 import reactor.core.publisher.Flux;
 
@@ -101,9 +101,7 @@ public class ConversationRetrievalAdvisor implements CallAdvisor, StreamAdvisor 
         log.info("历史对话向量库（conv-mon） 注入 {} 条历史对话: userId={}, query=[{}]",
                 hits.size(), userId, truncate(query, 30));
 
-        // ⑤ 追加到 SystemMessage
-        Prompt newPrompt = request.prompt().augmentSystemMessage(injection);
-        return request.mutate().prompt(newPrompt).build();
+        return PromptUtils.appendSystemMessage(request, injection);
     }
 
     /**

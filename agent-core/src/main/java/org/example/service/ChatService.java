@@ -143,6 +143,9 @@ public class ChatService {
     /** 个性化检索：保存跨会话的重要事实 */
     @Resource private RetrievalPreferenceTools retrievalPreferenceTools;
 
+    /** ★ D53：兴趣标签工具 */
+    @Resource private InterestTools interestTools;
+
     // ==================== 构造函数 ====================
 
     /**
@@ -205,7 +208,9 @@ public class ChatService {
                         entertainmentTools,
                         preferenceTools,
                         memoryTools,
-                        retrievalPreferenceTools
+                        retrievalPreferenceTools,
+                        interestTools
+
                 )
                 .build()
                 .getToolCallbacks();
@@ -302,15 +307,13 @@ public class ChatService {
         // ★ 从 conversationId 提取纯 userId 作为租户 ID
         String tenantId = extractUserId(conversationId);
 
-        // ★ 生成 cache key 后缀（lookup 和 store 都用同一个，保证一致）
-        String cacheKeySuffix = effectiveFilter.cacheKeySuffix();
+        // ★ D53：构造过滤维度 Map
+        Map<String, Object> filterDims = buildFilterDims(effectiveFilter);
 
-        // ==================== ① 语义缓存查询 ====================
-        String cachedAnswer = semanticCacheService.lookup(userInput, tenantId, cacheKeySuffix);
+// ① 语义缓存查询
+        String cachedAnswer = semanticCacheService.lookup(userInput, tenantId, filterDims);
         if (cachedAnswer != null) {
-            log.info("⏱️ [缓存命中] query=[{}] 耗时={}ms",
-                    truncate(userInput, 30),
-                    System.currentTimeMillis() - startTime);
+            log.info("✅ [缓存命中] query=[{}]", truncate(userInput, 30));
             return Flux.just(cachedAnswer);
         }
 
@@ -373,7 +376,7 @@ public class ChatService {
                     // 缓存最终答案（反问走不到这里——它在前面 return 了）
                     String answer = fullAnswer.toString();
                     if (!answer.isBlank()) {
-                        semanticCacheService.store(userInput, answer, tenantId, cacheKeySuffix);
+                        semanticCacheService.store(userInput, answer, tenantId, filterDims);
                     }
                 })
                 .doOnError(e -> log.error("⏱️ [异常] query=[{}]",
@@ -595,5 +598,26 @@ public class ChatService {
             log.warn("取历史提问失败，降级为空", e);
             return List.of();
         }
+    }
+
+    /**
+     * ★ D53：把 RagFilter 拆成 Map——交给 SemanticCacheService
+     * <p>
+     * <b>为什么不在 agent-cache 里直接依赖 RagFilter</b>：
+     * agent-cache 不能依赖 agent-rag（会循环）。
+     * 由 ChatService（agent-core）负责转换——缓存层不感知业务模型。
+     */
+    private Map<String, Object> buildFilterDims(RagFilter filter) {
+        if (filter == null) {
+            return Map.of();
+        }
+        Map<String, Object> dims = new HashMap<>();
+        dims.put("departments", filter.departments());
+        dims.put("year_from", filter.yearFrom());
+        dims.put("year_to", filter.yearTo());
+        dims.put("doc_types", filter.docTypes());
+        dims.put("security_level", filter.securityLevelMax());
+        dims.put("statuses", filter.statuses());
+        return dims;
     }
 }

@@ -5,94 +5,82 @@ import org.example.cache.config.SemanticCacheProperties;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.Filter;
+import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
- * 语义缓存服务（多租户 + 过滤感知版）
+ * 语义缓存服务（字段拆分版）
  * <p>
- * <b>D46 核心设计：filter 纳入缓存 key</b>
+ * <b>核心改动</b>：不再用 {@code "user-alice::财务部,公开|-|||3|active"} 这种
+ * 拼接字符串做缓存 key——改为"每个维度存一个独立的 metadata 字段"。
  * <p>
- * 原来的 key 只有 (query, tenantId)——但同一租户下，
- * "部门=财务部"和"部门=研发部"问同一个问题，答案完全不同。
- * 不把 filter 纳入 key，会命中错误的缓存——比不用缓存更糟。
+ * <b>解决的问题</b>：
+ * <ul>
+ *   <li>特殊字符（{@code - : | ,}）导致的 RediSearch 语法错误</li>
+ *   <li>不可读、不可独立查询</li>
+ *   <li>顺序敏感（集合顺序不同生成不同 key）</li>
+ * </ul>
  * <p>
- * <b>为什么参数是 String 而不是 RagFilter</b>：
- * 本类在 agent-cache 模块，RagFilter 在 agent-rag 模块——
- * 引入 RagFilter 会造成循环依赖。
- * 由调用方传"已拼好的 key 后缀"——本类只做字符串拼接，不感知过滤语义。
- * <p>
- * <b>复合 key 格式</b>：
- * <pre>
- * {tenantId}::{cacheKeySuffix}
- * </pre>
- * 例：
- * <pre>
- * user-alice::                                              ← 无过滤
- * user-alice::财务部|-|||2|active                           ← 部门+密级2+仅active
- * user-alice::财务部,人事部|2024-2026|制度|||active         ← 多维度组合
- * </pre>
+ * <b>哨兵值</b>：每个维度都显式存——缺失用 {@code "__NONE__"} 表示，
+ * 避免"空 filter"查询误命中"有 filter"的缓存。
  */
 @Slf4j
 @Service
 public class SemanticCacheService {
 
+    private static final String NONE = "__NONE__";
+
     private final VectorStore cacheVectorStore;
     private final SemanticCacheProperties properties;
-    private final StringRedisTemplate redis;
 
     public SemanticCacheService(@Qualifier("cacheVectorStore") VectorStore cacheVectorStore,
-                                SemanticCacheProperties properties,
-                                StringRedisTemplate redis) {
+                                SemanticCacheProperties properties) {
         this.cacheVectorStore = cacheVectorStore;
         this.properties = properties;
-        this.redis = redis;
     }
 
     // ==================== 查缓存 ====================
 
     /**
-     * 查缓存（带租户 + 过滤隔离）
+     * 查缓存
      *
-     * @param query          用户问题
-     * @param tenantId       租户/用户 ID（纯 userId，不含 sessionTag）
-     * @param cacheKeySuffix 过滤条件后缀（由 filter.cacheKeySuffix() 生成；null 或 "" 表示无过滤）
+     * @param query      用户问题
+     * @param userId     用户 ID（纯 userId，不含 sessionTag）
+     * @param filterDims 过滤维度 Map——key 见 {@link #buildFilterExpression}
      * @return 命中的答案；未命中返回 null
      */
-    public String lookup(String query, String tenantId, String cacheKeySuffix) {
+    public String lookup(String query, String userId, Map<String, Object> filterDims) {
         if (!properties.isEnabled()) {
             return null;
         }
         if (query == null || query.isBlank()) {
             return null;
         }
-        if (tenantId == null) {
-            tenantId = "default";
+        if (userId == null || userId.isBlank()) {
+            userId = "default";
         }
 
-        String cacheKey = buildCacheKey(tenantId, cacheKeySuffix);
-
         try {
+            Filter.Expression expr = buildFilterExpression(userId, filterDims);
+
             SearchRequest request = SearchRequest.builder()
                     .query(query)
                     .topK(1)
                     .similarityThreshold(properties.getSimilarityThreshold())
-                    .filterExpression("tenant_id == '" + cacheKey + "'")   // ★ 复合 key 过滤
+                    .filterExpression(expr)
                     .build();
 
             List<Document> results = cacheVectorStore.similaritySearch(request);
             if (results == null || results.isEmpty()) {
-                log.debug("缓存未命中: query=[{}], cacheKey=[{}]", truncate(query), cacheKey);
+                log.debug("缓存未命中: userId=[{}], query=[{}]", userId, truncate(query));
                 return null;
             }
 
             Document hit = results.get(0);
-
             Object answerObj = hit.getMetadata().get("answer");
             if (answerObj == null) {
                 log.warn("缓存命中但 answer 为 null——metadataFields 未声明或索引未重建");
@@ -100,8 +88,8 @@ public class SemanticCacheService {
             }
 
             Object cachedQuestion = hit.getMetadata().get("question");
-            log.info("✅ 语义缓存命中: cacheKey=[{}], query=[{}] ≈ 缓存问题=[{}]",
-                    cacheKey, truncate(query),
+            log.info("✅ 语义缓存命中: userId=[{}], query=[{}] ≈ 缓存问题=[{}]",
+                    userId, truncate(query),
                     truncate(cachedQuestion == null ? "" : cachedQuestion.toString()));
             return answerObj.toString();
 
@@ -111,17 +99,20 @@ public class SemanticCacheService {
         }
     }
 
-    /** 兼容旧调用——无过滤 */
-    public String lookup(String query, String tenantId) {
-        return lookup(query, tenantId, null);
+    /** 兼容——无过滤维度 */
+    public String lookup(String query, String userId) {
+        return lookup(query, userId, Map.of());
     }
 
     // ==================== 存缓存 ====================
 
     /**
-     * 存缓存（带租户 + 过滤隔离）
+     * 存缓存
+     * <p>
+     * 每个维度都以 {@code normalizeList} / {@code normalizeScalar} 处理——
+     * 缺失用哨兵值，集合排序——保证同一语义生成同一条缓存。
      */
-    public void store(String query, String answer, String tenantId, String cacheKeySuffix) {
+    public void store(String query, String answer, String userId, Map<String, Object> filterDims) {
         if (!properties.isEnabled()) {
             return;
         }
@@ -131,83 +122,126 @@ public class SemanticCacheService {
         if (answer == null || answer.isBlank()) {
             return;
         }
-        if (tenantId == null) {
-            tenantId = "default";
+        if (userId == null || userId.isBlank()) {
+            userId = "default";
         }
 
-        String cacheKey = buildCacheKey(tenantId, cacheKeySuffix);
-
         try {
-            Document doc = new Document(
-                    query,                                              // Document 内容是 question
-                    Map.of(
-                            "question", query,
-                            "answer", answer,
-                            "tenant_id", cacheKey,                       // ★ 存复合 key
-                            "raw_tenant_id", tenantId,                   // ★ 保留原始 tenantId（便于统计）
-                            "filter_suffix", cacheKeySuffix == null ? "" : cacheKeySuffix  // ★ 便于调试
-                    )
-            );
+            Map<String, Object> meta = new HashMap<>();
+            meta.put("question", query);
+            meta.put("answer", answer);
+            meta.put("user_id", userId);
+
+            // ★ 每个维度都显式存——缺失用哨兵
+            meta.put("departments", normalizeList(filterDims.get("departments")));
+            meta.put("year_from", normalizeScalar(filterDims.get("year_from")));
+            meta.put("year_to", normalizeScalar(filterDims.get("year_to")));
+            meta.put("doc_types", normalizeList(filterDims.get("doc_types")));
+            meta.put("security_level", normalizeScalar(filterDims.get("security_level")));
+            meta.put("statuses", normalizeList(filterDims.get("statuses")));
+
+            Document doc = new Document(query, meta);
             cacheVectorStore.add(List.of(doc));
-            log.info("缓存已存: cacheKey=[{}], query=[{}]", cacheKey, truncate(query));
+            log.info("缓存已存: userId=[{}], query=[{}], depts={}, sec={}, status={}",
+                    userId, truncate(query),
+                    meta.get("departments"), meta.get("security_level"), meta.get("statuses"));
 
         } catch (Exception e) {
             log.warn("存缓存失败", e);
         }
     }
 
-    /** 兼容旧调用——无过滤 */
-    public void store(String query, String answer, String tenantId) {
-        store(query, answer, tenantId, null);
+    /** 兼容——无过滤维度 */
+    public void store(String query, String answer, String userId) {
+        store(query, answer, userId, Map.of());
     }
 
-    // ==================== 复合 key 构造 ====================
+    // ==================== 过滤表达式构造 ====================
 
     /**
-     * 构造缓存 key
+     * 构造 RediSearch 过滤表达式
      * <p>
-     * 格式：{tenantId}::{cacheKeySuffix}
+     * 每个维度独立 AND——{@code user_id == 'xxx' && departments in [...] && security_level == '3'}
      * <p>
-     * 无过滤时 suffix 为空——key 变成 "user-alice::"
-     * （仍然用 "::" 分隔——与旧版本的 "user-alice" 不兼容，
-     * 但旧缓存会被清空重建，所以无影响）
+     * <b>为什么全部维度都必须写</b>：
+     * 如果不写某维度，RediSearch 不约束它——空 filter 的查询会误命中"有 filter"的缓存。
+     * 用哨兵值 {@code "__NONE__"} 让"缺失"成为一个显式的值。
      */
-    private String buildCacheKey(String tenantId, String cacheKeySuffix) {
-        if (cacheKeySuffix == null || cacheKeySuffix.isBlank()) {
-            return tenantId + "::";
+    private Filter.Expression buildFilterExpression(String userId, Map<String, Object> dims) {
+        FilterExpressionBuilder b = new FilterExpressionBuilder();
+        List<FilterExpressionBuilder.Op> ops = new ArrayList<>();
+
+        ops.add(b.eq("user_id", userId));
+
+        List<String> deps = normalizeList(dims.get("departments"));
+        ops.add(b.in("departments", deps.toArray()));
+
+        ops.add(b.eq("year_from", normalizeScalar(dims.get("year_from"))));
+        ops.add(b.eq("year_to", normalizeScalar(dims.get("year_to"))));
+
+        List<String> types = normalizeList(dims.get("doc_types"));
+        ops.add(b.in("doc_types", types.toArray()));
+
+        ops.add(b.eq("security_level", normalizeScalar(dims.get("security_level"))));
+
+        List<String> statuses = normalizeList(dims.get("statuses"));
+        ops.add(b.in("statuses", statuses.toArray()));
+
+        FilterExpressionBuilder.Op result = ops.get(0);
+        for (int i = 1; i < ops.size(); i++) {
+            result = b.and(result, ops.get(i));
         }
-        return tenantId + "::" + cacheKeySuffix;
+        return result.build();
+    }
+
+    // ==================== 归一化 ====================
+
+    /**
+     * 列表归一化——null/空 → [__NONE__]；有值 → 排序后的字符串列表
+     * <p>
+     * <b>为什么排序</b>：{@code ["财务部","公开"]} 和 {@code ["公开","财务部"]}
+     * 必须生成同一条缓存——排序消除顺序差异。
+     */
+    @SuppressWarnings("unchecked")
+    private List<String> normalizeList(Object obj) {
+        if (!(obj instanceof List<?> list) || list.isEmpty()) {
+            return List.of(NONE);
+        }
+        return list.stream()
+                .filter(Objects::nonNull)
+                .map(Object::toString)
+                .sorted()
+                .toList();
+    }
+
+    /**
+     * 标量归一化——null → __NONE__；其他 → toString
+     */
+    private String normalizeScalar(Object obj) {
+        return obj == null ? NONE : obj.toString();
     }
 
     // ==================== 缓存清理 ====================
 
     public void clearAll() {
         try {
-            Set<String> keys = redis.keys(properties.getKeyPrefix() + "*");
-            if (keys != null && !keys.isEmpty()) {
-                redis.delete(keys);
-                log.info("✅ 已清除 {} 个语义缓存 key", keys.size());
-            } else {
-                log.info("无需清除缓存（无数据）");
-            }
+            // ★ 用 RedisVectorStore 的 delete——传一个恒真条件
+            cacheVectorStore.delete("user_id != '__IMPOSSIBLE__'");
+            log.info("✅ 已清除全部语义缓存");
         } catch (Exception e) {
             log.error("清全部缓存失败", e);
         }
     }
 
-    public void clearByTenant(String tenantId) {
-        if (tenantId == null) {
-            tenantId = "default";
+    public void clearByUser(String userId) {
+        if (userId == null || userId.isBlank()) {
+            userId = "default";
         }
         try {
-            // ★ 用前缀匹配——清掉该租户的所有 filter 变体
-            //   注意：RedisVectorStore 的 delete 用 LIKE 需要 tenant_id 声明为 TEXT 类型，
-            //   若是 TAG 类型则用 ==。你当前是 TAG——改用精确匹配所有变体较复杂，
-            //   暂时仅清"无过滤"版本的缓存；如需彻底清，用 clearAll()。
-            cacheVectorStore.delete("tenant_id == '" + tenantId + "::'");
-            log.info("已清除租户 {} 的语义缓存（无过滤版本）", tenantId);
+            cacheVectorStore.delete("user_id == '" + userId + "'");
+            log.info("已清除用户 {} 的语义缓存", userId);
         } catch (Exception e) {
-            log.error("清租户缓存失败: tenantId={}", tenantId, e);
+            log.error("清用户缓存失败: userId={}", userId, e);
         }
     }
 
