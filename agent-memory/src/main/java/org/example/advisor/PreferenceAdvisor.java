@@ -1,7 +1,8 @@
 package org.example.advisor;
 
 import org.example.preference.UserPreferenceService;
-import org.example.utils.PromptUtils;
+import org.example.common.utils.ConversationIdUtils;
+import org.example.common.utils.PromptUtils;
 import org.example.utils.SensitiveDataMasker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,7 +13,6 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.publisher.Flux;
 
 /**
@@ -58,19 +58,14 @@ public class PreferenceAdvisor implements CallAdvisor, StreamAdvisor {
             return request;
         }
 
-        String userId = extractUserId(cid.toString());
-        String prefs = preferenceService.renderAsSystemText(userId);
+        String fullUserId = ConversationIdUtils.extractFullUserId(cid.toString());
+        String prefs = preferenceService.renderAsSystemText(fullUserId);
         if (prefs.isBlank()) {
             return request;
         }
 
-        log.info("注入用户偏好 [{}]:\n{}", userId, SensitiveDataMasker.mask(prefs));
+        log.info("注入用户偏好 [{}]:\n{}", fullUserId, SensitiveDataMasker.mask(prefs));
         return PromptUtils.appendSystemMessage(request, prefs);
     }
 
-    /** conversationId 约定格式 "userId:sessionTag"，取 userId 部分 */
-    private String extractUserId(String conversationId) {
-        int idx = conversationId.indexOf(':');
-        return idx > 0 ? conversationId.substring(0, idx) : conversationId;
-    }
 }

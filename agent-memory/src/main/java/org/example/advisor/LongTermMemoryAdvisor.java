@@ -1,7 +1,8 @@
 package org.example.advisor;
 
 import org.example.memory.LongTermMemoryService;
-import org.example.utils.PromptUtils;
+import org.example.common.utils.ConversationIdUtils;
+import org.example.common.utils.PromptUtils;
 import org.example.utils.SensitiveDataMasker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +60,7 @@ public class LongTermMemoryAdvisor implements CallAdvisor, StreamAdvisor {
             return request;
         }
 
-        String userId = extractUserId(cid.toString());
+        String fullUserId = ConversationIdUtils.extractFullUserId(cid.toString());
 
         // 取最后一条用户消息作为检索 query
         String query = request.prompt().getInstructions().stream()
@@ -71,20 +72,14 @@ public class LongTermMemoryAdvisor implements CallAdvisor, StreamAdvisor {
             return request;
         }
 
-        List<String> hits = longTermMemoryService.search(userId, query, TOP_K);
+        List<String> hits = longTermMemoryService.search(fullUserId, query, TOP_K);
         if (hits.isEmpty()) {
             return request;
         }
 
         String injection = "相关历史记忆（供参考）：\n" + String.join("\n", hits);
-
         log.info("检索到 {} 条记忆：\n{}", hits.size(), SensitiveDataMasker.mask(injection));
-
         return PromptUtils.appendSystemMessage(request, injection);
     }
 
-    private String extractUserId(String conversationId) {
-        int idx = conversationId.indexOf(':');
-        return idx > 0 ? conversationId.substring(0, idx) : conversationId;
-    }
 }

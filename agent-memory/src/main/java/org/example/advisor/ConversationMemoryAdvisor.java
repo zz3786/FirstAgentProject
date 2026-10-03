@@ -2,6 +2,7 @@ package org.example.advisor;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.memory.ConversationMemoryService;
+import org.example.common.utils.ConversationIdUtils;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -94,7 +95,7 @@ public class ConversationMemoryAdvisor implements CallAdvisor, StreamAdvisor {
             return;
         }
         String conversationId = cid.toString();
-        String userId = extractUserId(conversationId);
+        String fullUserId = ConversationIdUtils.extractFullUserId(conversationId);
 
         // ② 取最后一条用户消息
         String userMsg = lastUserMessage(request);
@@ -116,7 +117,7 @@ public class ConversationMemoryAdvisor implements CallAdvisor, StreamAdvisor {
         }
 
         // ④ 委托 Service 写库
-        memoryService.saveTurn(userId, conversationId, turnIndex, userMsg, answer);
+        memoryService.saveTurn(fullUserId, conversationId, turnIndex, userMsg, answer);
     }
 
     // ==================== 辅助 ====================
@@ -148,8 +149,4 @@ public class ConversationMemoryAdvisor implements CallAdvisor, StreamAdvisor {
                 .orElse(null);
     }
 
-    private String extractUserId(String conversationId) {
-        int idx = conversationId.indexOf(':');
-        return idx > 0 ? conversationId.substring(0, idx) : conversationId;
-    }
 }

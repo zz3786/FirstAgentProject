@@ -1,6 +1,7 @@
 package org.example.rag.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.common.audit.AuditLogger;
 import org.example.rag.config.RagProperties;
 import org.example.rag.entity.RagChunk;
 import org.example.rag.mapper.RagChunkMapper;
@@ -84,6 +85,17 @@ public class DocumentIngestService {
             backoff = @Backoff(delay = 1000, multiplier = 2)
     )
     public DocInfo ingest(Resource resource) {
+
+        // ★ D54：从路径提取租户
+        String filePath = null;
+        try {
+            filePath = resource.getFile().getAbsolutePath();
+        } catch (Exception e) {
+            // 非文件资源（ClassPathResource 等）——没有绝对路径
+        }
+        String tenantId = inferTenantId(filePath);
+        log.info("D54 入库租户: tenantId={}, file={}", tenantId, resource.getFilename());
+
         StopWatch sw = new StopWatch("文档入库");
         String originalName = resource.getFilename();
 
@@ -104,7 +116,7 @@ public class DocumentIngestService {
 
         // ④ 注入 metadata（幂等，两条路径统一入口）
         sw.start("注入metadata");
-        injectMetadata(chunks, docInfo);
+        injectMetadata(chunks, docInfo, tenantId,filePath);
         sw.stop();
 
         // ⑤ 向量化 + 存 Qdrant
@@ -114,10 +126,13 @@ public class DocumentIngestService {
 
         // ⑥ 存 MySQL
         sw.start("存MySQL");
-        saveToMysql(chunks, docInfo);
+        saveToMysql(chunks, docInfo,tenantId);
         sw.stop();
 
         log.info("文档入库完成 file=[{}] chunk数={} 总耗时={}ms\n{}",originalName, chunks.size(), sw.getTotalTimeMillis(), sw.prettyPrint());
+
+        // ★ 审计：文档入库
+        AuditLogger.docIngest(tenantId, "system",docInfo.docId(), docInfo.originalName());
 
         return docInfo;
     }
@@ -189,15 +204,21 @@ public class DocumentIngestService {
      * 这是"业务维度的统一补全"——所有路径都要有这些字段。
      * 解析器只管"文件怎么变文本"，不该感知业务分类。
      */
-    private void injectMetadata(List<Document> chunks, DocInfo docInfo) {
-        String department = inferDepartment(docInfo.originalName());
-        Integer year = inferYear(docInfo.originalName());
+    private void injectMetadata(List<Document> chunks, DocInfo docInfo, String tenantId,String filePath) {
 
-        // ★ 推断不出 → 用哨兵默认值（和老数据对齐）
-        //   部门："公开"——对所有部门可见
-        //   年份：0  ——一个合理的"未知"占位
-        if (department == null) department = "公开";
-        if (year == null)       year = 0;
+        Integer year = inferYearByPath(filePath);
+        if (year == null) {
+            year = inferYear(docInfo.originalName());
+            if (year == null) {
+                year = 0;
+            }
+        }
+
+        // ★ 优先从路径推——路径里推不出才用文件名
+        String department = inferDepartmentByPath(filePath);
+        if (department == null) {
+            department = inferDepartment(docInfo.originalName());   // 旧逻辑兜底
+        }
 
         Integer securityLevel = inferSecurityLevel(docInfo.originalName());
         String status = inferStatus(docInfo.originalName());
@@ -206,6 +227,7 @@ public class DocumentIngestService {
             Document chunk = chunks.get(i);
             Map<String, Object> meta = chunk.getMetadata();
 
+            meta.putIfAbsent("tenant_id", tenantId);
             // 通用文档标识
             meta.putIfAbsent("doc_id", docInfo.docId());
             meta.putIfAbsent("source", docInfo.originalName());
@@ -218,10 +240,8 @@ public class DocumentIngestService {
             meta.putIfAbsent("year", year);
 
             meta.putIfAbsent("content_type", "text");
-            meta.putIfAbsent("security_level",
-                    securityLevel != null ? securityLevel : 1);
-            meta.putIfAbsent("status",
-                    status != null ? status : "active");
+            meta.putIfAbsent("security_level",securityLevel);
+            meta.putIfAbsent("status",status);
         }
     }
 
@@ -308,6 +328,27 @@ public class DocumentIngestService {
     }
 
     /**
+     * D54：从文件路径提取部门
+     * <p>
+     * 目录约定：{listenFilesDir}/{tenantId}/{department}/{file}
+     * 例：D:/testVectorData/hospital-a/财务部/4婚姻.txt → 财务部
+     */
+    private String inferDepartmentByPath(String filePath) {
+        if (filePath == null) return null;
+        try {
+            Path base = Path.of(ragProperties.getListenFilesDir()).toAbsolutePath().normalize();
+            Path file = Path.of(filePath).toAbsolutePath().normalize();
+            Path relative = base.relativize(file);
+            if (relative.getNameCount() >= 3) {          // {tenantId}/{dept}/{file}
+                return relative.getName(1).toString();   // 第 2 段 = 部门
+            }
+        } catch (Exception e) {
+            log.warn("推断部门失败: {}", filePath, e);
+        }
+        return null;
+    }
+
+    /**
      * 从文件名推断年份
      * <p>
      * 示例：文件名含 "2024" → year=2024。
@@ -323,6 +364,25 @@ public class DocumentIngestService {
         return m.find() ? Integer.parseInt(m.group(1)) : null;
     }
 
+    private Integer inferYearByPath(String filePath) {
+        if (filePath == null) {
+            return null;
+        }
+        try {
+            Path base = Path.of(ragProperties.getListenFilesDir()).toAbsolutePath().normalize();
+            Path file = Path.of(filePath).toAbsolutePath().normalize();
+            // 遍历所有路径段——任何一段含 4 位年份就取
+            for (Path p : base.relativize(file)) {
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("(20\\d{2})").matcher(p.toString());
+                if (m.find()) return Integer.parseInt(m.group(1));
+            }
+        } catch (Exception e) {
+            log.warn("推断年份失败: {}", filePath, e);
+        }
+        return null;
+    }
+
 
 
 
@@ -332,7 +392,7 @@ public class DocumentIngestService {
      * ★ D46：同步写入过滤维度，供 fulltextSearchWithFilter 使用。
      * metadata 由 injectMetadata 和解析器共同填充，这里读出即可。
      */
-    private void saveToMysql(List<Document> chunks, DocInfo docInfo) {
+    private void saveToMysql(List<Document> chunks, DocInfo docInfo,String tenantId) {
         List<RagChunk> entities = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             Document chunk = chunks.get(i);
@@ -360,6 +420,8 @@ public class DocumentIngestService {
             }
             entity.setStatus((String) meta.get("status"));
 
+            entity.setTenantId(tenantId);
+
             // ★ 新增：页码 + 总切片数（从 metadata 取，PDF 解析时已注入）
             Object pageObj = meta.get("page_number");
             if (pageObj instanceof Number n) {
@@ -375,6 +437,38 @@ public class DocumentIngestService {
         }
         ragChunkMapper.batchInsert(entities);
         log.info("MySQL 同步完成，{} 条", entities.size());
+    }
+
+    /**
+     * D54：从文件路径提取 tenantId
+     * <p>
+     * 目录约定：{listenFilesDir}/{tenantId}/{department}/{file}
+     * 例：D:/testVectorData/hospital-a/财务部/2024报销.pdf → hospital-a
+     * <p>
+     * 提取不出 → "default"（兼容老目录结构）
+     */
+    private String inferTenantId(String filePath) {
+        if (filePath == null) return "default";
+
+        String listenDir = ragProperties.getListenFilesDir();
+        if (listenDir == null) return "default";
+
+        try {
+            java.nio.file.Path base = java.nio.file.Path.of(listenDir).toAbsolutePath().normalize();
+            java.nio.file.Path file = java.nio.file.Path.of(filePath).toAbsolutePath().normalize();
+
+            // file 相对 base 的路径，第一段就是 tenantId
+            java.nio.file.Path relative = base.relativize(file);
+            if (relative.getNameCount() >= 2) {   // 至少 {tenantId}/{file}
+                String first = relative.getName(0).toString();
+                if (!first.isBlank() && !first.contains(".")) {   // 不是文件名
+                    return first;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("推断 tenantId 失败: {}", filePath, e);
+        }
+        return "default";
     }
 
     /**

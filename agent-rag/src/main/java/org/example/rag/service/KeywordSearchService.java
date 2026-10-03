@@ -30,6 +30,7 @@ public class KeywordSearchService {
             String booleanQuery = buildBooleanQuery(query);
             List<RagChunk> chunks = ragChunkMapper.fulltextSearchWithFilter(
                     booleanQuery, topK,
+                    filter == null ? null : filter.tenantId(),
                     filter == null ? null : filter.departments(),
                     filter == null ? null : filter.yearFrom(),
                     filter == null ? null : filter.yearTo(),
@@ -129,6 +130,10 @@ public class KeywordSearchService {
         metadata.put("file_path", chunk.getFilePath());
         metadata.put("score", chunk.getScore());
         metadata.put("retrieval_type", "keyword");
+
+        if (chunk.getTenantId() != null) {
+            metadata.put("tenant_id", chunk.getTenantId());
+        }
 
         if (chunk.getDepartment() != null) {
             metadata.put("department", chunk.getDepartment());

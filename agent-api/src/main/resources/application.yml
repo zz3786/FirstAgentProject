@@ -118,6 +118,10 @@ app:
     max-assistant-chars: 2000
     min-user-message-chars: 5
     exclude-current-conversation: true
+    # ★ D54：SCAN 查询配置
+    scan-batch-size: 500
+    scan-timeout-seconds: 5
+    max-conversation-ids: 1000
 
   #D51个性化检索逻辑开关
   retrieval:
@@ -152,6 +156,7 @@ app:
     weight-increment: 0.15
     max-weight: 1.0
     min-weight: 0.2
+
 
 
   compaction:

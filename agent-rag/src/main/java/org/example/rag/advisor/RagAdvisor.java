@@ -3,7 +3,7 @@ package org.example.rag.advisor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.rag.model.RagFilter;
 import org.example.rag.service.HybridSearchService;
-import org.example.utils.PromptUtils;
+import org.example.common.utils.PromptUtils;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -11,7 +11,6 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.document.Document;
 import reactor.core.publisher.Flux;
 

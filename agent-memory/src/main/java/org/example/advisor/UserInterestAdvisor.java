@@ -2,7 +2,8 @@ package org.example.advisor;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.interest.UserInterestService;
-import org.example.utils.PromptUtils;
+import org.example.common.utils.ConversationIdUtils;
+import org.example.common.utils.PromptUtils;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -10,7 +11,6 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.publisher.Flux;
 
 /**
@@ -63,14 +63,14 @@ public class UserInterestAdvisor implements CallAdvisor, StreamAdvisor {
         if (cid == null) {
             return request;
         }
-        String userId = extractUserId(cid.toString());
+        String fullUserId = ConversationIdUtils.extractFullUserId(cid.toString());
 
-        String text = interestService.renderAsSystemText(userId);
+        String text = interestService.renderAsSystemText(fullUserId);
         if (text.isBlank()) {
             return request;
         }
 
-        log.info("D53 注入 {} 条兴趣标签: userId={}", text.lines().count() - 1, userId);
+        log.info("D53 注入 {} 条兴趣标签: userId={}", text.lines().count() - 1, fullUserId);
         return PromptUtils.appendSystemMessage(request, text);
     }
 

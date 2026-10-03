@@ -5,6 +5,7 @@ import io.qdrant.client.grpc.Points;
 import io.qdrant.client.grpc.Points.Filter;
 import lombok.extern.slf4j.Slf4j;
 import org.example.cache.service.SemanticCacheService;
+import org.example.common.audit.AuditLogger;
 import org.example.rag.config.RagProperties;
 import org.example.rag.entity.DocumentFingerprint;
 import org.example.rag.mapper.DocumentFingerprintMapper;
@@ -297,6 +298,23 @@ public class IncrementalUpdateService {
         } catch (Exception e) {
             log.warn("清缓存失败", e);
         }
+
+        // ★ 审计
+        AuditLogger.docDelete(
+                fp.getFilePath() != null ? extractTenantFromPath(fp.getFilePath()) : "unknown",
+                "system", docId, fp.getSource());
+    }
+
+    private String extractTenantFromPath(String filePath) {
+        try {
+            Path base = Path.of(ragProperties.getListenFilesDir()).toAbsolutePath().normalize();
+            Path file = Path.of(filePath).toAbsolutePath().normalize();
+            Path relative = base.relativize(file);
+            if (relative.getNameCount() >= 1) {
+                return relative.getName(0).toString();
+            }
+        } catch (Exception ignore) {}
+        return "unknown";
     }
 
     /**

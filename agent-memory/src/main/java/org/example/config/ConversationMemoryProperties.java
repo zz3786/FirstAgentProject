@@ -43,4 +43,15 @@ public class ConversationMemoryProperties {
 
     /** 是否排除当前会话（true = 只检索跨会话历史） */
     private boolean excludeCurrentConversation = false;
+
+    // ==================== ★ D54：SCAN 查询配置 ====================
+
+    /** SCAN 每批返回数量——建议 100~1000 */
+    private int scanBatchSize = 500;
+
+    /** SCAN 总超时（秒）——防止 Redis 慢时无限循环 */
+    private int scanTimeoutSeconds = 5;
+
+    /** 单次查询最大返回——防止恶意调用拉爆 */
+    private int maxConversationIds = 1000;
 }

@@ -21,7 +21,8 @@ public interface RagChunkMapper {
      * @param topK  返回条数
      */
     List<RagChunk> fulltextSearch(@Param("query") String query,
-                                  @Param("topK") int topK);
+                                  @Param("topK") int topK,
+                                  @Param("tenantId") String tenantId);
 
     /**
      * 按 docId 删除（重新入库时清理旧数据）
@@ -36,6 +37,7 @@ public interface RagChunkMapper {
     List<RagChunk> fulltextSearchWithFilter(
             @Param("query") String query,
             @Param("topK") int topK,
+            @Param("tenantId") String tenantId,
             @Param("departments") List<String> departments,
             @Param("yearFrom") Integer yearFrom,
             @Param("yearTo") Integer yearTo,

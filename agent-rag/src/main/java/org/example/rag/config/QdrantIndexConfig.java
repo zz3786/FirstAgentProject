@@ -43,6 +43,9 @@ public class QdrantIndexConfig {
 
             createIndexIfAbsent(qdrantClient, collection,
                     "status", PayloadSchemaType.Keyword);
+
+            createIndexIfAbsent(qdrantClient, collection,
+                    "tenant_id", PayloadSchemaType.Keyword);   // ★ 新增
         };
     }
 

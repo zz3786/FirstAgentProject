@@ -2,7 +2,8 @@ package org.example.advisor;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.memory.ConversationMemoryService;
-import org.example.utils.PromptUtils;
+import org.example.common.utils.ConversationIdUtils;
+import org.example.common.utils.PromptUtils;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -82,7 +83,7 @@ public class ConversationRetrievalAdvisor implements CallAdvisor, StreamAdvisor 
             return request;
         }
         String conversationId = cid.toString();
-        String userId = extractUserId(conversationId);
+        String fullUserId = ConversationIdUtils.extractFullUserId(cid.toString());
 
         // ② 取最后一条用户消息作为检索 query
         String query = lastUserMessage(request);
@@ -91,7 +92,7 @@ public class ConversationRetrievalAdvisor implements CallAdvisor, StreamAdvisor 
         }
 
         // ③ 检索历史轮次
-        List<Document> hits = memoryService.search(userId, query, conversationId);
+        List<Document> hits = memoryService.search(fullUserId, query, conversationId);
         if (hits.isEmpty()) {
             return request;
         }
@@ -99,7 +100,7 @@ public class ConversationRetrievalAdvisor implements CallAdvisor, StreamAdvisor 
         // ④ 拼装注入文本
         String injection = buildInjection(hits);
         log.info("历史对话向量库（conv-mon） 注入 {} 条历史对话: userId={}, query=[{}]",
-                hits.size(), userId, truncate(query, 30));
+                hits.size(), fullUserId, truncate(query, 30));
 
         return PromptUtils.appendSystemMessage(request, injection);
     }
@@ -134,11 +135,6 @@ public class ConversationRetrievalAdvisor implements CallAdvisor, StreamAdvisor 
                 .map(Message::getText)
                 .reduce((a, b) -> b)
                 .orElse(null);
-    }
-
-    private String extractUserId(String conversationId) {
-        int idx = conversationId.indexOf(':');
-        return idx > 0 ? conversationId.substring(0, idx) : conversationId;
     }
 
     private String truncate(String s, int max) {

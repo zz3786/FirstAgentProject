@@ -12,6 +12,9 @@ public class RagChunk {
 
     private Long id;
 
+    /** ★ D54：租户 ID */
+    private String tenantId;
+
     /** 文档 ID（对应 Qdrant 里的 doc_id） */
     private String docId;
 

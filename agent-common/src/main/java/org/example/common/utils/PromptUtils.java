@@ -1,4 +1,4 @@
-package org.example.utils;
+package org.example.common.utils;
 
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.messages.Message;

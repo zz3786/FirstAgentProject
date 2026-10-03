@@ -15,6 +15,7 @@ import org.example.rag.service.RetrievalProfileService;
 import org.example.rag.tools.RetrievalPreferenceTools;
 import org.example.tools.SafeToolCallback;
 import org.example.tools.*;
+import org.example.common.utils.ConversationIdUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
@@ -305,20 +306,20 @@ public class ChatService {
         RagFilter effectiveFilter = (ragFilter == null) ? RagFilter.empty() : ragFilter;
 
         // ★ 从 conversationId 提取纯 userId 作为租户 ID
-        String tenantId = extractUserId(conversationId);
+        String fullUserId = ConversationIdUtils.extractFullUserId(conversationId);
 
         // ★ D53：构造过滤维度 Map
         Map<String, Object> filterDims = buildFilterDims(effectiveFilter);
 
         // ① 语义缓存查询
-        String cachedAnswer = semanticCacheService.lookup(userInput, tenantId, filterDims);
+        String cachedAnswer = semanticCacheService.lookup(userInput, fullUserId, filterDims);
         if (cachedAnswer != null) {
             log.info("✅ [缓存命中] query=[{}]", truncate(userInput, 30));
             return Flux.just(cachedAnswer);
         }
 
         // ★ D51：读取检索画像
-        RetrievalProfile profile = retrievalProfileService.get(tenantId);
+        RetrievalProfile profile = retrievalProfileService.get(fullUserId);
 
         // ==================== ② D47 前置 RAG 检索 ====================
         // 提前做一次检索——供澄清判定和 RagAdvisor 共用，避免重复
@@ -355,7 +356,7 @@ public class ChatService {
                     //   即使是空 List 也传——表示"确实没结果"，RagAdvisor 直接跳过
                     a.param("prefetched_docs", prefetchedDocs);
                 })
-                .toolContext(Map.of("userId", tenantId))       // ★ 关键——把 userId 传给工具
+                .toolContext(Map.of("userId", fullUserId))       // ★ 关键——把 userId 传给工具
                 .toolCallbacks(wrappedCallbacks)
                 .stream()
                 .content()
@@ -376,7 +377,7 @@ public class ChatService {
                     // 缓存最终答案（反问走不到这里——它在前面 return 了）
                     String answer = fullAnswer.toString();
                     if (!answer.isBlank()) {
-                        semanticCacheService.store(userInput, answer, tenantId, filterDims);
+                        semanticCacheService.store(userInput, answer, fullUserId, filterDims);
                     }
                 })
                 .doOnError(e -> log.error("⏱️ [异常] query=[{}]",
@@ -398,20 +399,6 @@ public class ChatService {
 
 
     // ==================== 辅助方法 ====================
-
-    /**
-     * 从 conversationId 提取纯 userId
-     * <p>
-     * conversationId 格式："userId:sessionTag"
-     * tenantId 用纯 userId——保证同一用户在不同 session 的缓存共享。
-     * <p>
-     * 若 conversationId 不含 ":"（如直接传 "user-alice"），原样返回。
-     */
-    private String extractUserId(String conversationId) {
-        if (conversationId == null) return "default";
-        int idx = conversationId.indexOf(':');
-        return idx > 0 ? conversationId.substring(0, idx) : conversationId;
-    }
 
     /** 字符串截断——用于日志，避免刷屏 */
     private String truncate(String s, int max) {
@@ -554,7 +541,7 @@ public class ChatService {
             // ④ 渲染成文本块（作为 Flux 的单个元素推送）
             String block = recommendationService.render(recs);
             log.info("[D52] 追加 {} 条推荐: userId={}, query=[{}]",
-                    recs.size(), extractUserId(conversationId),
+                    recs.size(), ConversationIdUtils.extractFullUserId(conversationId),
                     truncate(userInput, 30));
             return Flux.just(block);
 
