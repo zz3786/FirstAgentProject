@@ -66,7 +66,7 @@ public class ChatMemoryConfig {
             @Qualifier("redisChatMemoryRepository") ChatMemoryRepository repo) {
         return MessageWindowChatMemory.builder()
                 .chatMemoryRepository(repo)
-                .maxMessages(200) //应为配置文件里配置 100条就开始压缩了 上限永远到不了200
+                .maxMessages(200) // 滑动窗口上限；触发压缩的阈值在 CompactionConfig（yml: app.compaction）
                 .build();
     }
 }

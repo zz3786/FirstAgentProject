@@ -1,9 +1,10 @@
 package org.example.service;
 
 import jakarta.annotation.PostConstruct;
-import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.example.cache.service.SemanticCacheService;
+import org.example.common.utils.TextUtils;
+import org.example.memory.ConversationMemoryService;
 import org.example.rag.retrieval.config.RecommendationProperties;
 import org.example.rag.shared.model.RagFilter;
 import org.example.rag.retrieval.model.RecommendedDoc;
@@ -13,7 +14,6 @@ import org.example.rag.retrieval.service.HybridSearchService;
 import org.example.rag.retrieval.service.RecommendationService;
 import org.example.rag.retrieval.service.RetrievalProfileService;
 import org.example.rag.retrieval.tools.RetrievalPreferenceTools;
-import org.example.tools.SafeToolCallback;
 import org.example.tools.*;
 import org.example.common.utils.ConversationIdUtils;
 import org.springframework.ai.chat.client.ChatClient;
@@ -42,13 +42,13 @@ import java.util.stream.Collectors;
  * <p>
  * <b>依赖装配</b>：
  * <ul>
- *   <li>{@code redisChatClient}：主业务 Client，带 6 个 Advisor（记忆 + 压缩 + 偏好 + RAG + 长期记忆 + 工具日志）</li>
+ *   <li>{@code redisChatClient}：主业务 Client，带 10 个 Advisor（记忆 + 压缩 + 偏好 + 兴趣 + RAG + 长期记忆 + 对话历史 + 工具日志 + 对话写入 + 提示词日志）</li>
  *   <li>{@code plainChatClient}：裸 Client，无任何 Advisor，用于简单调用</li>
  *   <li>{@code SemanticCacheService}：语义缓存，避免重复调 LLM</li>
  *   <li>{@code HybridSearchService}：混合检索——D47 前置调用，供澄清判定使用</li>
  *   <li>{@code ClarificationService}：D47 澄清判定——检索不明确时反问用户</li>
  *   <li>{@code ChatMemory}：会话记忆，用于"清空对话"功能</li>
- *   <li>8 个工具类：通过 {@code @Resource} 注入，在 {@code @PostConstruct} 里包装</li>
+ *   <li>10 个工具类：构造注入，在 {@code @PostConstruct} 里包装</li>
  * </ul>
  * <p>
  * Advisor 装配、Memory 绑定、工具装配都在 {@code ChatClientConfig} 里完成。
@@ -61,12 +61,21 @@ public class ChatService {
     // ==================== 注入的 Client 与 Service ====================
 
     /**
-     * 主业务 Client（带 6 个 Advisor）
+     * 主业务 Client（带 10 个 Advisor）
      * <p>
      * 每次调用会依次经过（由 {@code getOrder()} 决定）：
-     * MessageChatMemoryAdvisor → CompactingChatMemoryAdvisor(50)
-     *   → PreferenceAdvisor(100) → RagAdvisor(150)
-     *   → MemoryRetrievalAdvisor(200) → ToolLoggingAdvisor
+     * <pre>
+     * MessageChatMemoryAdvisor（内置，极小 order）
+     *   → CompactingChatMemoryAdvisor(50)
+     *   → PreferenceAdvisor(100)
+     *   → UserInterestAdvisor(120)
+     *   → RagAdvisor(150)
+     *   → LongTermMemoryAdvisor(200)
+     *   → ConversationRetrievalAdvisor(210)
+     *   → ConversationMemoryAdvisor(250)
+     *   → DebugPromptAdvisor(LOWEST_PRECEDENCE - 1)
+     *   → ToolLoggingAdvisor(LOWEST_PRECEDENCE)
+     * </pre>
      */
     private final ChatClient chatClientWithMemory;
 
@@ -79,6 +88,9 @@ public class ChatService {
 
     /** 语义缓存——避免重复问题重复调 LLM */
     private final SemanticCacheService semanticCacheService;
+
+    /**对话历史向量库服务**/
+    private final ConversationMemoryService conversationMemoryService;   // ★ 新增
 
     /** 混合检索——D47 前置调用，结果传给 RagAdvisor 避免重复检索 */
     private final HybridSearchService hybridSearchService;
@@ -115,37 +127,37 @@ public class ChatService {
      */
     private ToolCallback[] wrappedCallbacks;
 
-    // ==================== 工具类（@Resource 字段注入） ====================
+    // ==================== 工具类（构造注入） ====================
 
     /** 计算器：加减乘除 */
-    @Resource private CalculatorTools calculatorTools;
+    private final CalculatorTools calculatorTools;
 
     /** 文本分析：字数统计、关键词计数 */
-    @Resource private TextAnalysisTools textAnalysisTools;
+    private final TextAnalysisTools textAnalysisTools;
 
     /** 订单：按订单号查状态 */
-    @Resource private OrderTools orderTools;
+    private final OrderTools orderTools;
 
     /** 待办：创建/列出待办 */
-    @Resource private TodoTools todoTools;
+    private final TodoTools todoTools;
 
     /** 危险操作：测试异常兜底 */
-    @Resource private RiskTools riskTools;
+    private final RiskTools riskTools;
 
     /** 娱乐：讲笑话、名言 */
-    @Resource private EntertainmentTools entertainmentTools;
+    private final EntertainmentTools entertainmentTools;
 
     /** 用户偏好：保存结构化偏好（city/language 等） */
-    @Resource private PreferenceTools preferenceTools;
+    private final PreferenceTools preferenceTools;
 
     /** 长期记忆：保存跨会话的重要事实 */
-    @Resource private LongMemoryTools longMemoryTools;
+    private final LongMemoryTools longMemoryTools;
 
     /** 个性化检索：保存跨会话的重要事实 */
-    @Resource private RetrievalPreferenceTools retrievalPreferenceTools;
+    private final RetrievalPreferenceTools retrievalPreferenceTools;
 
     /** ★ D53：兴趣标签工具 */
-    @Resource private InterestTools interestTools;
+    private final InterestTools interestTools;
 
     // ==================== 构造函数 ====================
 
@@ -166,19 +178,43 @@ public class ChatService {
             @Qualifier("redisChatClient") ChatClient chatClientWithMemory,
             @Qualifier("plainChatClient") ChatClient chatClientWithoutMemory,
             SemanticCacheService semanticCacheService,
+            ConversationMemoryService conversationMemoryService,
             HybridSearchService hybridSearchService,
             ClarificationService clarificationService,
-            RetrievalProfileService retrievalProfileService, RecommendationProperties recommendationProperties, RecommendationService recommendationService,
-            @Qualifier("redisChatMemory") ChatMemory chatMemory) {
+            RetrievalProfileService retrievalProfileService,
+            RecommendationProperties recommendationProperties,
+            RecommendationService recommendationService,
+            @Qualifier("redisChatMemory") ChatMemory chatMemory,
+            CalculatorTools calculatorTools,
+            TextAnalysisTools textAnalysisTools,
+            OrderTools orderTools,
+            TodoTools todoTools,
+            RiskTools riskTools,
+            EntertainmentTools entertainmentTools,
+            PreferenceTools preferenceTools,
+            LongMemoryTools longMemoryTools,
+            RetrievalPreferenceTools retrievalPreferenceTools,
+            InterestTools interestTools) {
         this.chatClientWithMemory = chatClientWithMemory;
         this.chatClientWithoutMemory = chatClientWithoutMemory;
         this.semanticCacheService = semanticCacheService;
+        this.conversationMemoryService = conversationMemoryService;
         this.hybridSearchService = hybridSearchService;
         this.clarificationService = clarificationService;
         this.retrievalProfileService = retrievalProfileService;
         this.recommendationProperties = recommendationProperties;
         this.recommendationService = recommendationService;
         this.chatMemory = chatMemory;
+        this.calculatorTools = calculatorTools;
+        this.textAnalysisTools = textAnalysisTools;
+        this.orderTools = orderTools;
+        this.todoTools = todoTools;
+        this.riskTools = riskTools;
+        this.entertainmentTools = entertainmentTools;
+        this.preferenceTools = preferenceTools;
+        this.longMemoryTools = longMemoryTools;
+        this.retrievalPreferenceTools = retrievalPreferenceTools;
+        this.interestTools = interestTools;
     }
 
     // ==================== 初始化 ====================
@@ -186,12 +222,13 @@ public class ChatService {
     /**
      * 工具回调初始化
      * <p>
-     * 执行时机：{@code @PostConstruct} 在"构造函数执行完成 + {@code @Resource} 字段注入完成"之后触发。
+     * 执行时机：{@code @PostConstruct} 在"构造函数执行完成"之后触发。
+     * 因为所有工具都是构造注入（final 字段），构造器返回时它们已经有值——
      * 所以此处访问 {@code calculatorTools} 等字段是安全的（不是 null）。
      * <p>
      * 做三件事：
      * <ol>
-     *   <li>把 8 个工具对象扫描成原始 ToolCallback</li>
+     *   <li>把 10 个工具对象扫描成原始 ToolCallback</li>
      *   <li>用 SafeToolCallback 逐个包装（超时 / 异常 / 日志）</li>
      *   <li>存为实例字段，后续每次对话以 {@code .toolCallbacks(...)} 传入</li>
      * </ol>
@@ -211,7 +248,6 @@ public class ChatService {
                         longMemoryTools,
                         retrievalPreferenceTools,
                         interestTools
-
                 )
                 .build()
                 .getToolCallbacks();
@@ -314,7 +350,7 @@ public class ChatService {
         // ① 语义缓存查询
         String cachedAnswer = semanticCacheService.lookup(userInput, fullUserId, filterDims);
         if (cachedAnswer != null) {
-            log.info("✅ [缓存命中] query=[{}]", truncate(userInput, 30));
+            log.info("✅ [缓存命中] query=[{}]", TextUtils.truncate(userInput, 30));
             return Flux.just(cachedAnswer);
         }
 
@@ -331,7 +367,7 @@ public class ChatService {
         if (clarificationService.isAmbiguous(userInput, prefetchedDocs)) {
             String clarifyMsg = clarificationService.buildClarification(userInput, prefetchedDocs);
             log.info("🤔 [反问] query=[{}] 耗时={}ms（跳过 LLM）",
-                    truncate(userInput, 30),
+                    TextUtils.truncate(userInput, 30),
                     System.currentTimeMillis() - startTime);
             // 注意：反问不存语义缓存——Flux.just 不经过 doOnComplete
             return Flux.just(clarifyMsg);
@@ -365,14 +401,14 @@ public class ChatService {
                     if (firstTokenTime[0] == 0) {
                         firstTokenTime[0] = System.currentTimeMillis();
                         log.info("⏱️ [首Token] query=[{}] TTFT={}ms",
-                                truncate(userInput, 30),
+                                TextUtils.truncate(userInput, 30),
                                 firstTokenTime[0] - startTime);
                     }
                 })
                 .doOnComplete(() -> {
                     long totalCost = System.currentTimeMillis() - startTime;
                     log.info("⏱️ [完整响应] query=[{}] 总耗时={}ms",
-                            truncate(userInput, 30), totalCost);
+                            TextUtils.truncate(userInput, 30), totalCost);
 
                     // 缓存最终答案（反问走不到这里——它在前面 return 了）
                     String answer = fullAnswer.toString();
@@ -381,7 +417,7 @@ public class ChatService {
                     }
                 })
                 .doOnError(e -> log.error("⏱️ [异常] query=[{}]",
-                        truncate(userInput, 30), e))
+                        TextUtils.truncate(userInput, 30), e))
                 .onErrorResume(e -> {
                     log.error("流式调用异常", e);
                     return Flux.just("⚠️ " + toFriendlyMessage(e));
@@ -399,35 +435,46 @@ public class ChatService {
 
 
     // ==================== 辅助方法 ====================
-
-    /** 字符串截断——用于日志，避免刷屏 */
-    private String truncate(String s, int max) {
-        return s == null ? "" : (s.length() > max ? s.substring(0, max) + "..." : s);
-    }
-
     /**
-     * 清空某个会话的对话历史
+     * 清空某个会话的全部记忆
      * <p>
-     * 用途：chat.html 的"清空对话"按钮。
+     * <b>"彻底遗忘"语义</b>：清空 = 用户以为删掉的东西真的消失了。两处一起清：
+     * <ol>
+     *   <li><b>CHAT:*</b>——当前会话的滚动窗口（短期记忆）</li>
+     *   <li><b>conv-mem:*</b>——该会话的所有轮次向量（D50 长期历史）</li>
+     * </ol>
      * <p>
-     * <b>只清 CHAT:*</b>——会话记忆。不动：
+     * <b>不动</b>：
      * <ul>
-     *   <li>LTM:*（长期记忆）——用户的跨会话事实</li>
+     *   <li>LTM:*（长期记忆）——用户的跨会话事实（"我叫张三"）</li>
      *   <li>USER_PREF:*（用户偏好）——用户的稳定偏好</li>
-     *   <li>semantic-cache:*（语义缓存）——按租户共享</li>
+     *   <li>USER_INTEREST:*（兴趣标签）——跨会话累积，不属于某一次对话</li>
+     *   <li>semantic-cache:*（语义缓存）——按用户共享，不清</li>
      * </ul>
      * <p>
-     * 底层委托给 {@code MessageWindowChatMemory.clear()} →
-     * {@code RedisChatMemoryRepository.deleteByConversationId()}。
+     * <b>为什么不清 LTM</b>：
+     * 用户"清空对话"针对的是"这次聊天记录"，不是"忘掉我"。
+     * 要彻底忘掉，得有独立的功能入口（"注销账号"级别）。
      *
-     * @param conversationId 会话 ID（格式 "userId:sessionTag"）
+     * @param conversationId 完整会话 ID（"hospital-a:user-alice:c383288e"）
      */
     public void clearMemory(String conversationId) {
+        // ① 清 CHAT——短期会话窗口
         try {
             chatMemory.clear(conversationId);
-            log.info("✅ 已清空会话历史: conversationId={}", conversationId);
+            log.info("✅ 已清空 CHAT 短期记忆: conversationId={}", conversationId);
         } catch (Exception e) {
-            log.error("清空会话失败: conversationId={}", conversationId, e);
+            log.error("清空 CHAT 失败: conversationId={}", conversationId, e);
+        }
+
+        // ② 清 conv-mem——D50 对话历史向量库
+        //    失败已在 Service 内部 catch，这里只打日志不抛
+        boolean vectorDeleted = conversationMemoryService.deleteByConversationId(conversationId);
+        if (vectorDeleted) {
+            log.info("✅ 已清空 conv-mem 长期历史: conversationId={}", conversationId);
+        } else {
+            log.warn("⚠️ conv-mem 未清干净（可能本来就没数据）: conversationId={}",
+                    conversationId);
         }
     }
 
@@ -488,8 +535,7 @@ public class ChatService {
     private List<Document> fetchPrefetchedDocs(String query, RagFilter filter, RetrievalProfile profile) {
         try {
             List<Document> docs = hybridSearchService.search(query, filter,profile);
-            log.info("🔍 [前置检索] query=[{}] 返回 {} 条",
-                    truncate(query, 30), docs.size());
+            log.info("🔍 [前置检索] query=[{}] 返回 {} 条",TextUtils.truncate(query, 30), docs.size());
             return docs;
         } catch (Exception e) {
             log.warn("🔍 [前置检索] 失败，降级为空结果", e);
@@ -541,8 +587,7 @@ public class ChatService {
             // ④ 渲染成文本块（作为 Flux 的单个元素推送）
             String block = recommendationService.render(recs);
             log.info("[D52] 追加 {} 条推荐: userId={}, query=[{}]",
-                    recs.size(), ConversationIdUtils.extractFullUserId(conversationId),
-                    truncate(userInput, 30));
+                    recs.size(), ConversationIdUtils.extractFullUserId(conversationId), TextUtils.truncate(userInput, 30));
             return Flux.just(block);
 
         } catch (Exception e) {

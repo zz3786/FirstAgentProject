@@ -178,6 +178,7 @@ public class OcrService {
     @PreDestroy
     public void shutdown() {
         ocrExecutor.shutdownNow();
+        tesseractHolder.remove();   // ★
         log.info("OcrService 线程池已关闭");
     }
 }

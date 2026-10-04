@@ -168,5 +168,5 @@ app:
 
 
   compaction:
-    max-messages-before-compaction: 20
+    max-messages-before-compaction: 20  #应为配置文件里配置 20 条就开始压缩了（默认 100，本项目 yml 覆盖为 20——便于演示）
     keep-recent-messages: 8

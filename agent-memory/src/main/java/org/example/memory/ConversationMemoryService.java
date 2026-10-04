@@ -1,6 +1,8 @@
 package org.example.memory;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.common.utils.RedisTagUtils;
+import org.example.common.utils.TextUtils;
 import org.example.config.ConversationMemoryProperties;
 import org.example.utils.SensitiveDataMasker;
 import org.springframework.ai.document.Document;
@@ -42,18 +44,17 @@ public class ConversationMemoryService {
         }
 
         String safeUser = SensitiveDataMasker.mask(userMsg);
-        String safeAssistant = SensitiveDataMasker.mask(
-                truncate(assistantMsg, props.getMaxAssistantChars()));
+        String safeAssistant = SensitiveDataMasker.mask(TextUtils.truncate(assistantMsg, props.getMaxAssistantChars()));
 
         // ★ 关键：user_id 里的 '-' ':' 等是 RediSearch 保留字——统一转义成 '_'
-        String safeUserId = escapeRedisTag(userId);
+        String safeUserId = RedisTagUtils.escape(userId);
 
         try {
             Document doc = new Document(
                     safeUser,
                     Map.of(
                             "user_id", safeUserId,                  // ★ 存转义后的
-                            "conversation_id", conversationId,
+                            "conversation_id", RedisTagUtils.escape(conversationId),
                             "turn_index", turnIndex,
                             "user_message", safeUser,
                             "assistant_message", safeAssistant,
@@ -79,12 +80,12 @@ public class ConversationMemoryService {
 
         try {
             // ★ 关键：查询时同样转义——和存储保持一致的规则
-            String safeUserId = escapeRedisTag(userId);
+            String safeUserId = RedisTagUtils.escape(userId);
             String filterExpr = "user_id == '" + safeUserId + "'";
 
             if (props.isExcludeCurrentConversation()
                     && excludeConvId != null && !excludeConvId.isBlank()) {
-                filterExpr += " && conversation_id != '" + escapeRedisTag(excludeConvId) + "'";
+                filterExpr += " && conversation_id != '" + RedisTagUtils.escape(excludeConvId) + "'";
             }
 
             SearchRequest request = SearchRequest.builder()
@@ -96,15 +97,14 @@ public class ConversationMemoryService {
 
             List<Document> results = conversationVectorStore.similaritySearch(request);
             if (results == null || results.isEmpty()) {
-                log.debug("对话历史未命中: userId={}, query=[{}]",
-                        userId, truncate(query, 30));
+                log.info("对话历史（向量库）未命中: userId={}, query=[{}]",
+                        safeUserId, TextUtils.truncate(query, 30));
                 return List.of();
             }
 
-            log.info("✅ 对话历史命中 {} 条: userId={}, query=[{}]",
-                    results.size(), userId, truncate(query, 30));
+            log.info("✅ 对话历史（）向量库命中 {} 条: userId={}, query=[{}]",
+                    results.size(), userId, TextUtils.truncate(query, 30));
             return results;
-
         } catch (Exception e) {
             log.warn("对话记忆检索失败，降级为空", e);
             return List.of();
@@ -116,25 +116,36 @@ public class ConversationMemoryService {
     }
 
     // ==================== 辅助 ====================
-
     /**
-     * RediSearch TAG 字段转义
+     * 按 conversationId 删除该会话的所有对话历史
      * <p>
-     * RediSearch 里 TAG 类型的值——{@code - : , . | 空格} 等
-     * 都是保留字符，不转义会报 "Syntax error"。
+     * <b>用途</b>：用户在 UI 上点"清空对话"时，除了清短期记忆 CHAT，
+     * 还要清这个会话在向量库里的所有轮次——彻底遗忘。
      * <p>
-     * 统一策略：非字母数字下划线 → 下划线。
-     * 存和查用同一规则——保证匹配一致。
+     * <b>为什么放这里而不是 ChatService 里直接调 vectorStore</b>：
+     * conversationVectorStore 是本类的 private 字段——只有本类能访问。
+     * 保持"谁持有谁提供操作"的内聚原则。
+     * <p>
+     * <b>为什么不用 RedisTagUtils.escape 之外的写法</b>：
+     * 存的时候 conversation_id 转过义（saveTurn 里），
+     * 查/删必须用同一规则，否则匹配不上——跟 user_id 一样的坑。
+     *
+     * @param conversationId 完整会话 ID（"hospital-a:user-alice:c383288e"）
+     * @return 是否执行成功（异常时返回 false，不向上抛，避免阻断主流程）
      */
-    private String escapeRedisTag(String s) {
-        if (s == null) return "default";
-        return s.replaceAll("[^a-zA-Z0-9_]", "_");
-    }
-
-    private String truncate(String s, int max) {
-        if (s == null) {
-            return "";
+    public boolean deleteByConversationId(String conversationId) {
+        if (conversationId == null || conversationId.isBlank()) {
+            return false;
         }
-        return s.length() <= max ? s : s.substring(0, max) + "...";
+        try {
+            String safeConvId = RedisTagUtils.escape(conversationId);
+            conversationVectorStore.delete("conversation_id == '" + safeConvId + "'");
+            log.info("🗑️ 已删除对话历史向量: conversationId={}", conversationId);
+            return true;
+        } catch (Exception e) {
+            // ★ 删除失败不该让"清空对话"整体失败——记日志，返回 false
+            log.warn("删除对话历史向量失败: conversationId={}", conversationId, e);
+            return false;
+        }
     }
 }

@@ -34,7 +34,7 @@ public class LongTermMemoryAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public String getName() {
-        return "MemoryRetrievalAdvisor";
+        return "LongTermMemoryAdvisor";
     }
 
     @Override

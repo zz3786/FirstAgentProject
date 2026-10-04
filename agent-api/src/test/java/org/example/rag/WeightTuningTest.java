@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.example.rag.retrieval.config.RetrievalProperties;
 import org.example.rag.retrieval.service.HybridSearchService;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.document.Document;
@@ -21,7 +22,7 @@ class WeightTuningTest {
     private HybridSearchService hybridSearchService;
 
     @Autowired
-    private RagProperties ragProperties;
+    private RetrievalProperties retrievalProperties;
 
     @Data
     static class EvalCase {
@@ -50,8 +51,8 @@ class WeightTuningTest {
             double wKw = 1.0 - wVec;
 
             // 临时设置权重（通过反射或 setter）
-            ragProperties.setVectorWeight(wVec);
-            ragProperties.setKeywordWeight(wKw);
+            retrievalProperties.setVectorWeight(wVec);
+            retrievalProperties.setKeywordWeight(wKw);
 
             // 计算命中率
             double hitRate = evaluate(cases);

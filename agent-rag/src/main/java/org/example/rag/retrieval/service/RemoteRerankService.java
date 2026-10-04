@@ -118,8 +118,8 @@ public class RemoteRerankService {
             return reranked;
 
         } catch (Exception e) {
-            log.error("调用 TEI 失败，返回空结果", e);
-            return List.of();   // 出错也别返回不相关结果
+            log.error("调用 TEI 失败，降级为融合结果（不精排）", e);
+            return documents.stream().limit(topN).toList();   // ← 降级，不是放弃
         }
     }
 

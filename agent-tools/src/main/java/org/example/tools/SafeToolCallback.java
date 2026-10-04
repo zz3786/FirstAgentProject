@@ -25,11 +25,13 @@ public class SafeToolCallback implements ToolCallback {
 
     private static final long TIMEOUT_SECONDS = 10;
 
-    private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool(r -> {
-        Thread t = new Thread(r, "tool-callback-worker");
-        t.setDaemon(true);
-        return t;
-    });
+    private static final ExecutorService EXECUTOR = new ThreadPoolExecutor(
+            16, 32,
+            60L, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(200),
+            r -> { Thread t = new Thread(r, "tool-callback-worker"); t.setDaemon(true); return t; },
+            new ThreadPoolExecutor.CallerRunsPolicy()
+    );
 
     private final ToolCallback delegate;
 

@@ -21,7 +21,7 @@ class SemanticCacheQuickTest {
         String tenantB = "user-B";
 
         // 清空旧缓存
-        cacheService.clearByTenant(tenantA);
+        cacheService.clearByUser(tenantA);
 
         // ① 存
         cacheService.store("家庭医生签约注意事项", "答案A", tenantA);

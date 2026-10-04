@@ -50,7 +50,7 @@ class EmbeddingDebugTest {
     @Test
     void rawRestTemplateTestWithHost() {
         String url = "https://llm-flmgbipyi282dygn.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/embeddings";
-        String apiKey = "sk-ws-H.EDYHMLX.oN7W.MEQCIFv8JTcl6EG0Vrtg8Lb1sPFGfZ4EHEc-RT5gWaDMH8HjAiB_NpwXVczXBb8WSRWtm3wLuE5JQcTIfX95f4-lR6f0Rg";
+        String apiKey = System.getenv("DASHSCOPE_API_KEY");
         String body = "{\"input\":\"测试文本\",\"model\":\"text-embedding-v4\",\"dimensions\":1024}";
 
         RestTemplate restTemplate = new RestTemplate();

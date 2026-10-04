@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.*;
+import org.springframework.context.annotation.Profile;
 import org.springframework.core.Ordered;
 import reactor.core.publisher.Flux;
 
@@ -14,6 +15,7 @@ import reactor.core.publisher.Flux;
  * ToolLoggingAdvisor 之前——看到的是"注入完毕的最终态"。
  */
 @Slf4j
+@Profile("dev")
 public class DebugPromptAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override

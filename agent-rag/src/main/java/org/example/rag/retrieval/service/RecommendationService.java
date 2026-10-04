@@ -1,6 +1,7 @@
 package org.example.rag.retrieval.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.common.utils.TextUtils;
 import org.example.rag.retrieval.config.RecommendationProperties;
 import org.example.rag.shared.model.RagFilter;
 import org.example.rag.retrieval.model.RecommendedDoc;
@@ -167,7 +168,7 @@ public class RecommendationService {
 
     private RecommendedDoc toRecommendedDoc(Document doc, String docId) {
         String source = (String) doc.getMetadata().getOrDefault("source", "未知文档");
-        String snippet = buildSnippet(doc.getText());
+        String snippet = TextUtils.truncateWithClean(doc.getText(), props.getMaxSnippetChars());
         double score = extractScore(doc);
 
         return new RecommendedDoc(
@@ -177,15 +178,6 @@ public class RecommendationService {
                 score,
                 DOWNLOAD_URL_PREFIX + docId
         );
-    }
-
-    private String buildSnippet(String text) {
-        if (text == null || text.isBlank()) {
-            return "";
-        }
-        String clean = text.replaceAll("\\s+", " ").trim();
-        int max = props.getMaxSnippetChars();
-        return clean.length() > max ? clean.substring(0, max) + "..." : clean;
     }
 
     private double extractScore(Document doc) {

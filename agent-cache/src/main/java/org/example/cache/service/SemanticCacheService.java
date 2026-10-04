@@ -2,6 +2,8 @@ package org.example.cache.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.cache.config.SemanticCacheProperties;
+import org.example.common.utils.RedisTagUtils;
+import org.example.common.utils.TextUtils;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -76,7 +78,7 @@ public class SemanticCacheService {
 
             List<Document> results = cacheVectorStore.similaritySearch(request);
             if (results == null || results.isEmpty()) {
-                log.debug("缓存未命中: userId=[{}], query=[{}]", userId, truncate(query));
+                log.debug("缓存未命中: userId=[{}], query=[{}]", RedisTagUtils.escape(userId), TextUtils.truncate(query,30));
                 return null;
             }
 
@@ -89,8 +91,8 @@ public class SemanticCacheService {
 
             Object cachedQuestion = hit.getMetadata().get("question");
             log.info("✅ 语义缓存命中: userId=[{}], query=[{}] ≈ 缓存问题=[{}]",
-                    userId, truncate(query),
-                    truncate(cachedQuestion == null ? "" : cachedQuestion.toString()));
+                    RedisTagUtils.escape(userId), TextUtils.truncate(query,30),
+                    TextUtils.truncate(cachedQuestion == null ? "" : cachedQuestion.toString(),30));
             return answerObj.toString();
 
         } catch (Exception e) {
@@ -130,7 +132,7 @@ public class SemanticCacheService {
             Map<String, Object> meta = new HashMap<>();
             meta.put("question", query);
             meta.put("answer", answer);
-            meta.put("user_id", userId);
+            meta.put("user_id", RedisTagUtils.escape(userId));
 
             // ★ 每个维度都显式存——缺失用哨兵
             meta.put("departments", normalizeList(filterDims.get("departments")));
@@ -143,7 +145,7 @@ public class SemanticCacheService {
             Document doc = new Document(query, meta);
             cacheVectorStore.add(List.of(doc));
             log.info("缓存已存: userId=[{}], query=[{}], depts={}, sec={}, status={}",
-                    userId, truncate(query),
+                    userId, TextUtils.truncate(query,30),
                     meta.get("departments"), meta.get("security_level"), meta.get("statuses"));
 
         } catch (Exception e) {
@@ -171,7 +173,7 @@ public class SemanticCacheService {
         FilterExpressionBuilder b = new FilterExpressionBuilder();
         List<FilterExpressionBuilder.Op> ops = new ArrayList<>();
 
-        ops.add(b.eq("user_id", userId));
+        ops.add(b.eq("user_id", RedisTagUtils.escape(userId)));
 
         List<String> deps = normalizeList(dims.get("departments"));
         ops.add(b.in("departments", deps.toArray()));
@@ -225,7 +227,7 @@ public class SemanticCacheService {
 
     public void clearAll() {
         try {
-            // ★ 用 RedisVectorStore 的 delete——传一个恒真条件
+            // ★ 用 RedisVectorStore 的 delete——传一个恒真条件  但这是依赖 RediSearch 对 != 的行为 有的版本不知道，根据实际情况决定
             cacheVectorStore.delete("user_id != '__IMPOSSIBLE__'");
             log.info("✅ 已清除全部语义缓存");
         } catch (Exception e) {
@@ -238,17 +240,11 @@ public class SemanticCacheService {
             userId = "default";
         }
         try {
-            cacheVectorStore.delete("user_id == '" + userId + "'");
+            cacheVectorStore.delete("user_id == '" + RedisTagUtils.escape(userId) + "'");
             log.info("已清除用户 {} 的语义缓存", userId);
         } catch (Exception e) {
             log.error("清用户缓存失败: userId={}", userId, e);
         }
     }
 
-    private String truncate(String s) {
-        if (s == null) {
-            return "";
-        }
-        return s.length() > 30 ? s.substring(0, 30) + "..." : s;
-    }
 }

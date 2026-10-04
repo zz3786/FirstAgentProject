@@ -1,6 +1,7 @@
 package org.example.advisor;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.common.utils.TextUtils;
 import org.example.memory.ConversationMemoryService;
 import org.example.common.utils.ConversationIdUtils;
 import org.example.common.utils.PromptUtils;
@@ -100,7 +101,7 @@ public class ConversationRetrievalAdvisor implements CallAdvisor, StreamAdvisor 
         // ④ 拼装注入文本
         String injection = buildInjection(hits);
         log.info("历史对话向量库（conv-mon） 注入 {} 条历史对话: userId={}, query=[{}]",
-                hits.size(), fullUserId, truncate(query, 30));
+                hits.size(), fullUserId, TextUtils.truncate(query, 30));
 
         return PromptUtils.appendSystemMessage(request, injection);
     }
@@ -121,26 +122,18 @@ public class ConversationRetrievalAdvisor implements CallAdvisor, StreamAdvisor 
             sb.append(i + 1).append(". 用户曾说：")
                     .append(userMsg == null ? "" : userMsg).append("\n");
             sb.append("   你当时回答：")
-                    .append(truncate(assistantMsg == null ? "" : assistantMsg.toString(), 200))
+                    .append(TextUtils.truncate(assistantMsg == null ? "" : assistantMsg.toString(), 200))
                     .append("\n");
         }
         return sb.toString();
     }
 
     // ==================== 辅助 ====================
-
     private String lastUserMessage(ChatClientRequest request) {
         return request.prompt().getInstructions().stream()
                 .filter(m -> "USER".equals(m.getMessageType().name()))
                 .map(Message::getText)
                 .reduce((a, b) -> b)
                 .orElse(null);
-    }
-
-    private String truncate(String s, int max) {
-        if (s == null) {
-            return "";
-        }
-        return s.length() > max ? s.substring(0, max) + "..." : s;
     }
 }

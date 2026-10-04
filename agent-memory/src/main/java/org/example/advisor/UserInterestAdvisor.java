@@ -73,9 +73,4 @@ public class UserInterestAdvisor implements CallAdvisor, StreamAdvisor {
         log.info("D53 注入 {} 条兴趣标签: userId={}", text.lines().count() - 1, fullUserId);
         return PromptUtils.appendSystemMessage(request, text);
     }
-
-    private String extractUserId(String conversationId) {
-        int idx = conversationId.indexOf(':');
-        return idx > 0 ? conversationId.substring(0, idx) : conversationId;
-    }
 }
