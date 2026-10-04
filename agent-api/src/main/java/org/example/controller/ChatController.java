@@ -5,7 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.example.api.common.ApiResponse;
 import org.example.common.audit.AuditLogger;
-import org.example.rag.model.RagFilter;
+import org.example.rag.shared.model.RagFilter;
 import org.example.service.ChatService;
 import org.example.common.utils.ConversationIdUtils;
 import org.example.utils.SessionUtils;

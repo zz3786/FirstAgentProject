@@ -1,7 +1,7 @@
 package org.example.rag;
 
-import org.example.rag.mapper.RagChunkMapper;
-import org.example.rag.service.KeywordSearchService;
+import org.example.rag.shared.mapper.RagChunkMapper;
+import org.example.rag.retrieval.service.KeywordSearchService;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Autowired;

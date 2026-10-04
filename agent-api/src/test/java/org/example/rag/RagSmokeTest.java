@@ -1,13 +1,13 @@
 package org.example.rag;
 
-import org.example.rag.config.RagProperties;
-import org.example.rag.service.DocumentIngestService;
+import org.example.rag.ingest.config.IngestProperties;
+import org.example.rag.ingest.service.DocumentIngestService;
+import org.example.rag.retrieval.config.RetrievalProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.FileSystemResource;
 
@@ -25,12 +25,15 @@ class RagSmokeTest {
     private VectorStore vectorStore;
 
     @Autowired
-    private RagProperties ragProperties;
+    private RetrievalProperties retrievalProperties;
+
+    @Autowired
+    private IngestProperties ingestProperties;
 
     @Test
     void testIngestAndSearch() {
         // ① 入库
-        String filePath = ragProperties.getListenFilesDir()+"家庭医生有偿签约服务协议书.docx";
+        String filePath = ingestProperties.getListenFilesDir()+"家庭医生有偿签约服务协议书.docx";
 
         // ★ 返回值从 int 改成 DocInfo
         DocumentIngestService.DocInfo info =
@@ -42,8 +45,8 @@ class RagSmokeTest {
         // ② 检索——先用具体词、不要阈值
         SearchRequest request = SearchRequest.builder()
                 .query("签约家庭医生时要注意什么")       // ← 改成文档里出现的词
-                .topK(ragProperties.getTopK())
-                .similarityThreshold(ragProperties.getSimilarityThreshold())     // ← 注释掉
+                .topK(retrievalProperties.getTopK())
+                .similarityThreshold(retrievalProperties.getSimilarityThreshold())     // ← 注释掉
                 .build();
 
         List<Document> results = vectorStore.similaritySearch(request);

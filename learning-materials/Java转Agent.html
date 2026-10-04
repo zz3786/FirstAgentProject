@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Java后端转Agent开发：3个月实战学习规划书（Spring AI 1.1.8 修订版）</title>
+<style>
+  :root {
+    --primary: #1a56db;
+    --primary-light: #e8effd;
+    --accent: #d97706;
+    --accent-light: #fef3c7;
+    --success: #059669;
+    --success-light: #d1fae5;
+    --border: #e5e7eb;
+    --bg: #f9fafb;
+    --text: #1f2937;
+    --text-light: #6b7280;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    line-height: 1.7;
+    color: var(--text);
+    background: var(--bg);
+    margin: 0;
+    padding: 0;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+    background: #fff;
+    min-height: 100vh;
+    box-shadow: 0 0 40px rgba(0,0,0,0.04);
+  }
+
+  header {
+    border-bottom: 3px solid var(--primary);
+    padding-bottom: 24px;
+    margin-bottom: 32px;
+  }
+
+  h1 {
+    font-size: 28px;
+    line-height: 1.4;
+    margin: 0 0 8px;
+    color: #111827;
+  }
+
+  .subtitle {
+    font-size: 16px;
+    color: var(--text-light);
+    margin-bottom: 20px;
+  }
+
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px 24px;
+    font-size: 14px;
+    color: var(--text-light);
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 16px 20px;
+  }
+
+  .meta div strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .notice {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: var(--accent-light);
+    border-left: 4px solid var(--accent);
+    border-radius: 4px;
+    font-size: 14px;
+    color: #78350f;
+  }
+
+  h2 {
+    font-size: 22px;
+    margin: 48px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+    color: #111827;
+  }
+
+  h3 {
+    font-size: 17px;
+    margin: 32px 0 12px;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  h3 .week-range {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-light);
+    background: var(--bg);
+    border-radius: 12px;
+    padding: 2px 10px;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    margin: 12px 0 24px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    min-width: 680px;
+  }
+
+  thead th {
+    background: var(--primary);
+    color: #fff;
+    text-align: left;
+    padding: 10px 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+
+  tbody td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  tbody tr:nth-child(even) { background: #fafafa; }
+  tbody tr:hover { background: var(--primary-light); }
+  tbody tr:last-child td { border-bottom: none; }
+
+  td:first-child {
+    font-weight: 600;
+    color: var(--primary);
+    white-space: nowrap;
+    width: 48px;
+  }
+
+  td:nth-child(2),
+  td:nth-child(3) {
+    white-space: nowrap;
+    color: var(--text-light);
+    font-size: 13px;
+  }
+
+  .fix {
+    display: inline-block;
+    background: var(--accent-light);
+    color: #92400e;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 4px;
+    margin-right: 6px;
+    white-space: nowrap;
+    vertical-align: 1px;
+  }
+
+  .new {
+    display: inline-block;
+    background: #dbeafe;
+    color: #1e40af;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 4px;
+    margin-right: 6px;
+    white-space: nowrap;
+    vertical-align: 1px;
+  }
+
+  .milestone {
+    margin: 20px 0 32px;
+    padding: 14px 18px;
+    background: var(--success-light);
+    border-left: 4px solid var(--success);
+    border-radius: 6px;
+    font-size: 14.5px;
+    color: #065f46;
+  }
+
+  .milestone strong { color: #064e3b; }
+
+  .goal {
+    font-size: 15px;
+    color: var(--text);
+    background: var(--primary-light);
+    border-radius: 6px;
+    padding: 12px 18px;
+    margin: 0 0 24px;
+    border-left: 4px solid var(--primary);
+  }
+
+  .goal strong { color: var(--primary); }
+
+  ol, ul { padding-left: 24px; margin: 10px 0; }
+  li { margin-bottom: 6px; font-size: 14.5px; }
+
+  .appendix-list li { margin-bottom: 10px; }
+  .appendix-list li.new {
+    background: var(--accent-light);
+    border-radius: 4px;
+    padding: 6px 10px;
+    list-style-position: inside;
+    margin-left: -10px;
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 2px dashed var(--border);
+    font-size: 14.5px;
+    color: var(--text-light);
+    line-height: 1.9;
+  }
+
+  footer strong { color: var(--text); }
+  .rocket { font-size: 18px; }
+
+  @media (max-width: 640px) {
+    .container { padding: 20px 14px 60px; }
+    h1 { font-size: 21px; }
+    h2 { font-size: 18px; }
+    .meta { grid-template-columns: 1fr; }
+    table { font-size: 12.5px; }
+    tbody td { padding: 8px 9px; }
+  }
+
+  @media print {
+    body { background: #fff; }
+    .container { box-shadow: none; padding: 0; max-width: 100%; }
+    h2, h3 { page-break-after: avoid; }
+    table { page-break-inside: auto; }
+    tr { page-break-inside: avoid; page-break-after: auto; }
+    thead { display: table-header-group; }
+    .milestone, .goal { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>《Java后端转Agent开发：3个月实战学习规划书（日历版）》</h1>
+    <p class="subtitle">Spring AI 1.1.8 修订版</p>
+
+    <div class="meta">
+      <div><strong>启动日期：</strong>2026年9月8日（周二）</div>
+      <div><strong>结束日期：</strong>2026年11月30日（周一）</div>
+      <div><strong>适用人群：</strong>熟悉 Spring Boot 的 Java 后端开发者</div>
+      <div><strong>技术基线：</strong>Java 21+、Spring Boot 3.5.x、Spring AI 1.1.8</div>
+      <div><strong>最终产出：</strong>具备 RAG、工具调用、多智能体协作的企业级 Agent 原型</div>
+    </div>
+
+    <div class="notice">
+      <strong>版本说明：</strong>本计划已从 Spring AI 1.0.9 升级到 <strong>1.1.8</strong>。
+      1.1.x 是 1.x 系列的功能线，相比 1.0.x 新增了 <strong>原生 MCP 支持</strong>、<strong>Prompt 缓存</strong>、
+      <strong>递归 Advisor</strong> 等能力，与你计划中的第三阶段高度契合。
+      文中标注 <span class="new">1.1.8 新增</span> 处为 1.1.x 带来的新能力，
+      <span class="fix">1.1.8 调整</span> 处为 API 使用方式的变化。
+    </div>
+  </header>
+
+  <!-- ============ 一、整体日历里程碑 ============ -->
+  <h2>一、整体日历里程碑</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>阶段</th>
+          <th>周期</th>
+          <th>日历时间段</th>
+          <th>核心主题</th>
+          <th>里程碑产出</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>第一阶段</td>
+          <td>第1~4周</td>
+          <td>9/8（周二）~ 10/5（周一）</td>
+          <td>认知重塑 &amp; 工具调用</td>
+          <td>能调用外部API的“智能助手”Demo</td>
+        </tr>
+        <tr>
+          <td>第二阶段</td>
+          <td>第5~8周</td>
+          <td>10/6（周二）~ 11/2（周一）</td>
+          <td>RAG 与 记忆系统</td>
+          <td>企业知识库问答 Agent（支持文档检索）</td>
+        </tr>
+        <tr>
+          <td>第三阶段</td>
+          <td>第9~12周</td>
+          <td>11/3（周二）~ 11/30（周一）</td>
+          <td>Workflow 与 多智能体协作</td>
+          <td>多角色协作的复杂任务处理系统</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 二、第一阶段 ============ -->
+  <h2>二、第一阶段：认知重塑 &amp; 工具调用（9/8 - 10/5）</h2>
+  <p class="goal"><strong>目标：</strong>理解 Agent 的决策-执行分离，熟练掌握 Function Calling / Tool Calling。</p>
+
+  <h3>📅 第1周：思维转换 &amp; 环境搭建 <span class="week-range">9/8 - 9/14</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D1</td><td>9/8</td><td>周二</td><td>认知升级</td><td>阅读《ReAct 论文》摘要；理解 Agent 与普通接口调用的本质区别</td></tr>
+        <tr><td>D2</td><td>9/9</td><td>周三</td><td>环境准备</td><td>安装 JDK 21、IntelliJ IDEA、Docker；注册 DeepSeek/通义 API</td></tr>
+        <tr><td>D3</td><td>9/10</td><td>周四</td><td>Spring AI 初探</td><td><span class="fix">1.1.8 调整</span>创建 Spring Boot <strong>3.5.x</strong> 项目；引入 <code>spring-ai-bom:1.1.8</code>；依赖用 <code>spring-ai-starter-model-openai</code>，国产模型走 OpenAI 兼容模式</td></tr>
+        <tr><td>D4</td><td>9/11</td><td>周五</td><td>同步调用</td><td>用 <code>ChatClient</code> 编写第一个同步聊天接口</td></tr>
+        <tr><td>D5</td><td>9/12</td><td>周六</td><td>流式响应</td><td>实现流式输出 <code>Flux</code>，体验“打字机”效果</td></tr>
+        <tr><td>D6</td><td>9/13</td><td>周日</td><td>对话上下文</td><td><code>ChatMemory</code> + <code>MessageWindowChatMemory</code> + <code>InMemoryChatMemoryRepository</code>，通过 <code>MessageChatMemoryAdvisor</code> 挂载</td></tr>
+        <tr><td>D7</td><td>9/14</td><td>周一</td><td>复盘整理</td><td>写第一篇学习笔记：《从后端到Agent的思维转变》</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>📅 第2周：Tool Calling 实战 <span class="week-range">9/15 - 9/21</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D8</td><td>9/15</td><td>周二</td><td>设计工具契约</td><td>理解 <code>@Tool</code>、<code>@ToolParam(description, required)</code>；编译加 <code>-parameters</code>；1.1.x 工具循环由 <code>ToolCallingAdvisor</code> 接管，行为更统一</td></tr>
+        <tr><td>D9</td><td>9/16</td><td>周三</td><td>实现天气工具</td><td>封装第三方天气 API 为工具（模拟或真实）</td></tr>
+        <tr><td>D10</td><td>9/17</td><td>周四</td><td>实现订单工具</td><td>结合 MySQL，查询订单状态并封装为工具</td></tr>
+        <tr><td>D11</td><td>9/18</td><td>周五</td><td>多工具选择</td><td>测试模型根据提问自动选择“天气”或“订单”工具</td></tr>
+        <tr><td>D12</td><td>9/19</td><td>周六</td><td>异常处理</td><td>处理工具调用超时和失败，返回友好错误信息</td></tr>
+        <tr><td>D13</td><td>9/20</td><td>周日</td><td>日志追踪</td><td>为每次工具调用打印完整入参和出参日志</td></tr>
+        <tr><td>D14</td><td>9/21</td><td>周一</td><td>集成测试</td><td>编写 JUnit 测试用例，验证工具调用全流程</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>📅 第3周：记忆与状态管理 <span class="week-range">9/22 - 9/28</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D15</td><td>9/22</td><td>周二</td><td>会话内记忆</td><td><code>InMemoryChatMemoryRepository</code> + <code>MessageWindowChatMemory</code> 管理单会话上下文</td></tr>
+        <tr><td>D16</td><td>9/23</td><td>周三</td><td>持久化记忆</td><td>用 <code>JdbcChatMemoryRepository</code> + MySQL，或自实现 <code>ChatMemoryRepository</code> 接入 Redis</td></tr>
+        <tr><td>D17</td><td>9/24</td><td>周四</td><td>记忆压缩</td><td><span class="new">1.1.8 新增</span>可参考 1.1.x 的 <strong>递归 Advisor</strong> 思路，或自定义 Advisor 实现“总结旧消息”</td></tr>
+        <tr><td>D18</td><td>9/25</td><td>周五</td><td>长期记忆</td><td>存储用户偏好（如常用城市），下次对话自动注入</td></tr>
+        <tr><td>D19</td><td>9/26</td><td>周六</td><td>记忆检索</td><td>基于当前问题检索相关历史记忆片段</td></tr>
+        <tr><td>D20</td><td>9/27</td><td>周日</td><td>记忆安全</td><td>敏感信息脱敏，实现用户数据隔离</td></tr>
+        <tr><td>D21</td><td>9/28</td><td>周一</td><td>功能整合</td><td>将记忆功能整合到上周的工具项目中</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>📅 第4周：第一阶段整合 &amp; 项目雏形 <span class="week-range">9/29 - 10/5</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D22</td><td>9/29</td><td>周二</td><td>项目模块化</td><td>按 agent-core、tools、memory、api 拆分 Maven 模块</td></tr>
+        <tr><td>D23</td><td>9/30</td><td>周三</td><td>多模型配置</td><td>通过 <code>application.yml</code> 切换 <code>spring.ai.openai</code> / <code>spring.ai.deepseek</code> 等</td></tr>
+        <tr><td>D24</td><td>10/1</td><td>周四</td><td>全局异常处理</td><td>实现 <code>@ControllerAdvice</code>，返回模型可读的错误信息</td></tr>
+        <tr><td>D25</td><td>10/2</td><td>周五</td><td>简易评估</td><td>编写 5 个典型测试用例，记录通过率</td></tr>
+        <tr><td>D26</td><td>10/3</td><td>周六</td><td>前端界面</td><td>用 Postman 或 Thymeleaf 做一个简单的聊天界面</td></tr>
+        <tr><td>D27</td><td>10/4</td><td>周日</td><td>项目文档</td><td>编写 README，介绍架构图和启动方式</td></tr>
+        <tr><td>D28</td><td>10/5</td><td>周一</td><td>第一阶段复盘</td><td>整理代码到 GitHub，打 v1.0 标签；总结心得</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="milestone">
+    ✅ <strong>里程碑产出：</strong>一个可运行的 Agent Demo，支持工具调用（天气/订单）和会话记忆。
+  </div>
+
+  <!-- ============ 三、第二阶段 ============ -->
+  <h2>三、第二阶段：RAG 与 记忆系统（10/6 - 11/2）</h2>
+  <p class="goal"><strong>目标：</strong>让 Agent 能访问企业私有文档，实现智能知识库问答。</p>
+
+  <h3>📅 第5周：RAG 基础 <span class="week-range">10/6 - 10/12</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D29</td><td>10/6</td><td>周二</td><td>RAG 概念学习</td><td>理解索引（Ingest）→ 检索（Retrieve）→ 生成（Generate）流程</td></tr>
+        <tr><td>D30</td><td>10/7</td><td>周三</td><td>文档解析</td><td>使用 Tika 或 PDFBox 解析 PDF 和 Word 文档</td></tr>
+        <tr><td>D31</td><td>10/8</td><td>周四</td><td>文本切片</td><td>使用 <code>TokenTextSplitter</code> / <code>TextSplitter</code>，保留重叠</td></tr>
+        <tr><td>D32</td><td>10/9</td><td>周五</td><td>向量化</td><td>调用 <code>EmbeddingModel</code> 生成向量</td></tr>
+        <tr><td>D33</td><td>10/10</td><td>周六</td><td>向量存储</td><td>Docker 运行 pgvector，依赖 <code>spring-ai-starter-vector-store-pgvector</code></td></tr>
+        <tr><td>D34</td><td>10/11</td><td>周日</td><td>相似度检索</td><td>用 <code>VectorStore.similaritySearch()</code>，自动生成 SQL</td></tr>
+        <tr><td>D35</td><td>10/12</td><td>周一</td><td>检索+生成</td><td>用 <code>QuestionAnswerAdvisor</code> 或手动把检索结果拼入 Prompt</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>📅 第6周：RAG 优化 <span class="week-range">10/13 - 10/19</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D36</td><td>10/13</td><td>周二</td><td>多路召回</td><td>手动组合 <code>VectorStore</code> + 关键词检索（MySQL 全文/Lucene）</td></tr>
+        <tr><td>D37</td><td>10/14</td><td>周三</td><td>重排序</td><td>接外部 cross-encoder，或降级为“理解概念”</td></tr>
+        <tr><td>D38</td><td>10/15</td><td>周四</td><td>Prompt 工程</td><td>设计带上下文的 Prompt，强制模型引用原文</td></tr>
+        <tr><td>D39</td><td>10/16</td><td>周五</td><td>引用来源</td><td>从 <code>Document</code> metadata 中返回文档名称和页码</td></tr>
+        <tr><td>D40</td><td>10/17</td><td>周六</td><td>增量更新</td><td>监听文档目录变化，自动重新索引</td></tr>
+        <tr><td>D41</td><td>10/18</td><td>周日</td><td>性能测试</td><td>测试索引速度和检索延迟</td></tr>
+        <tr><td>D42</td><td>10/19</td><td>周一</td><td>缓存机制</td><td><span class="new">1.1.8 新增</span>可评估 1.1.x 的 <strong>Prompt 缓存</strong>（Anthropic / Bedrock）用于高频问答</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>📅 第7周：高级检索 &amp; 多模态 <span class="week-range">10/20 - 10/26</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D43</td><td>10/20</td><td>周二</td><td>混合检索调优</td><td>手动调整 BM25 与向量的权重配比</td></tr>
+        <tr><td>D44</td><td>10/21</td><td>周三</td><td>表格抽取</td><td>处理 Excel/CSV，转为结构化文本描述</td></tr>
+        <tr><td>D45</td><td>10/22</td><td>周四</td><td>图片 OCR</td><td>对文档中的图片进行文字提取（Tesseract）</td></tr>
+        <tr><td>D46</td><td>10/23</td><td>周五</td><td>元数据过滤</td><td>使用 VectorStore 的过滤表达式，按时间、部门等标签过滤</td></tr>
+        <tr><td>D47</td><td>10/24</td><td>周六</td><td>Agent 主动追问</td><td>若检索结果不明确，Agent 反问用户澄清</td></tr>
+        <tr><td>D48</td><td>10/25</td><td>周日</td><td>整合主项目</td><td>将 RAG 模块合并到第一阶段项目中</td></tr>
+        <tr><td>D49</td><td>10/26</td><td>周一</td><td>端到端测试</td><td>上传 10 份文档，验证问答准确率</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>📅 第8周：记忆 + RAG 融合 <span class="week-range">10/27 - 11/2</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D50</td><td>10/27</td><td>周二</td><td>对话历史向量化</td><td>将历史对话也存入向量库</td></tr>
+        <tr><td>D51</td><td>10/28</td><td>周三</td><td>个性化检索</td><td>根据用户历史偏好调整检索权重</td></tr>
+        <tr><td>D52</td><td>10/29</td><td>周四</td><td>主动推荐</td><td>基于历史提问，Agent 主动推荐相关文档</td></tr>
+        <tr><td>D53</td><td>10/30</td><td>周五</td><td>用户画像</td><td>维护用户关注的技术领域标签</td></tr>
+        <tr><td>D54</td><td>10/31</td><td>周六</td><td>多租户支持</td><td>实现不同部门/用户的数据隔离</td></tr>
+        <tr><td>D55</td><td>11/1</td><td>周日</td><td>异步索引</td><td>使用异步任务优化大批量文档导入性能</td></tr>
+        <tr><td>D56</td><td>11/2</td><td>周一</td><td>第二阶段复盘</td><td>整理代码打 v2.0 标签；撰写 RAG 调优心得</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="milestone">
+    ✅ <strong>里程碑产出：</strong>一个完整的 RAG Agent，能回答企业内部知识库问题（支持引用来源）。
+  </div>
+
+  <!-- ============ 四、第三阶段 ============ -->
+  <h2>四、第三阶段：工作流 &amp; 多智能体协作（11/3 - 11/30）</h2>
+  <p class="goal"><strong>目标：</strong>让 Agent 处理复杂任务，并具备分工协作能力。</p>
+
+  <h3>📅 第9周：Workflow 编排 <span class="week-range">11/3 - 11/9</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D57</td><td>11/3</td><td>周二</td><td>工作流概念</td><td>学习 Plan-and-Execute 模式</td></tr>
+        <tr><td>D58</td><td>11/4</td><td>周三</td><td>顺序工作流</td><td>手动编排多个 <code>ChatClient</code> 调用，实现“检索 → 总结 → 发邮件”</td></tr>
+        <tr><td>D59</td><td>11/5</td><td>周四</td><td>条件分支</td><td>用 Java 逻辑根据中间结果决定下一步</td></tr>
+        <tr><td>D60</td><td>11/6</td><td>周五</td><td>并行执行</td><td>用 <code>CompletableFuture</code> / Reactor 同时检索多个数据源</td></tr>
+        <tr><td>D61</td><td>11/7</td><td>周六</td><td>异常重试</td><td>用 Spring Retry / Resilience4j 实现重试或降级</td></tr>
+        <tr><td>D62</td><td>11/8</td><td>周日</td><td>人工介入</td><td>若 Agent 不确定，转人工处理（HITL），保存状态</td></tr>
+        <tr><td>D63</td><td>11/9</td><td>周一</td><td>DSL 定义</td><td>使用 JSON/YAML 定义工作流，自行解析并动态加载</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>📅 第10周：MCP 协议与标准化 <span class="week-range">11/10 - 11/16</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D64</td><td>11/10</td><td>周二</td><td>了解 MCP</td><td><span class="new">1.1.8 新增</span>1.1.x <strong>原生集成 MCP</strong>，了解协议模型与 Spring AI 的注解式编程模型</td></tr>
+        <tr><td>D65</td><td>11/11</td><td>周三</td><td>MCP 服务端</td><td><span class="new">1.1.8 新增</span>用 <code>@McpTool</code> / <code>@McpResource</code> / <code>@McpPrompt</code> 注解将方法暴露为 MCP 能力</td></tr>
+        <tr><td>D66</td><td>11/12</td><td>周四</td><td>MCP Client</td><td><span class="new">1.1.8 新增</span>用 <code>spring-ai-starter-mcp-client</code> 连接外部 MCP Server</td></tr>
+        <tr><td>D67</td><td>11/13</td><td>周五</td><td>工具注册中心</td><td>用 <code>ToolCallbackProvider</code> 搭建简单的工具市场（注册与发现）</td></tr>
+        <tr><td>D68</td><td>11/14</td><td>周六</td><td>动态发现</td><td>运行时从注册中心拉取工具列表，构建 <code>ToolCallback</code></td></tr>
+        <tr><td>D69</td><td>11/15</td><td>周日</td><td>安全校验</td><td>为工具调用增加 RBAC 权限验证</td></tr>
+        <tr><td>D70</td><td>11/16</td><td>周一</td><td>集成测试</td><td>编写 MCP 全链路集成测试</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>📅 第11周：Multi-Agent 多智能体协作 <span class="week-range">11/17 - 11/23</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D71</td><td>11/17</td><td>周二</td><td>多 Agent 模式</td><td>1.1.x 无原生 Multi-Agent；手动组合多个 <code>ChatClient</code> 实例，配合递归 Advisor 实现反思</td></tr>
+        <tr><td>D72</td><td>11/18</td><td>周三</td><td>主管 Agent</td><td>负责拆解复杂任务，分发给工作者 Agent（直接调用工作者 <code>ChatClient</code>）</td></tr>
+        <tr><td>D73</td><td>11/19</td><td>周四</td><td>工作者 Agent</td><td>分别具备财务、技术、法务等不同 <code>defaultTools</code> 和 <code>defaultSystem</code></td></tr>
+        <tr><td>D74</td><td>11/20</td><td>周五</td><td>通信机制</td><td>使用 RabbitMQ 或 Spring Event 进行 Agent 间通信</td></tr>
+        <tr><td>D75</td><td>11/21</td><td>周六</td><td>结果聚合</td><td>汇总各工作者结果，生成最终答案</td></tr>
+        <tr><td>D76</td><td>11/22</td><td>周日</td><td>冲突处理</td><td>意见不一致时引入仲裁者或投票机制，手动实现</td></tr>
+        <tr><td>D77</td><td>11/23</td><td>周一</td><td>调用链追踪</td><td>集成 Micrometer Tracing + Zipkin，可视化多 Agent 调用链路</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>📅 第12周：项目收官 &amp; 面试冲刺 <span class="week-range">11/24 - 11/30</span></h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>天数</th><th>日期</th><th>星期</th><th>任务内容</th><th>1.1.8 关键操作/资源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>D78</td><td>11/24</td><td>周二</td><td>项目整合</td><td>合并所有模块，配置 GitHub Actions CI/CD</td></tr>
+        <tr><td>D79</td><td>11/25</td><td>周三</td><td>综合文档</td><td>编写架构设计说明书、部署指南、API 文档</td></tr>
+        <tr><td>D80</td><td>11/26</td><td>周四</td><td>性能压测</td><td>使用 JMeter 模拟高并发，观察 TPS 和延迟</td></tr>
+        <tr><td>D81</td><td>11/27</td><td>周五</td><td>安全加固</td><td>增加输入过滤、输出审核，防止 Prompt 注入</td></tr>
+        <tr><td>D82</td><td>11/28</td><td>周六</td><td>演示视频</td><td>录制 5 分钟项目演示，上传 B站/YouTube</td></tr>
+        <tr><td>D83</td><td>11/29</td><td>周日</td><td>面试题梳理</td><td>背诵并理解常见 Agent 面试题（见附录）</td></tr>
+        <tr><td>D84</td><td>11/30</td><td>周一</td><td>终极复盘</td><td>确保代码可运行，更新简历，标记 v3.0 正式版</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="milestone">
+    ✅ <strong>最终产出：</strong>一个完整的生产级多智能体系统，可作为简历上的核心项目。
+  </div>
+
+  <!-- ============ 五、附录1 ============ -->
+  <h2>五、附录1：面试/简历核心考点清单</h2>
+  <p>在项目完成后，你应能流利回答：</p>
+  <ol class="appendix-list">
+    <li>ReAct 模式的具体流程是什么？</li>
+    <li>Function Calling / Tool Calling 的底层实现原理是什么？</li>
+    <li>RAG 的完整流程，以及解决检索不准的常用方法？</li>
+    <li>如何处理 Agent 的“幻觉”问题？</li>
+    <li>多 Agent 协作的通信方式有哪些？</li>
+    <li>如何评估 Agent 的效果（离线评估与在线评估）？</li>
+    <li>如何保证 Agent 生产环境的可靠性（超时、重试、熔断）？</li>
+    <li>MCP 协议的作用是什么？Spring AI 1.1.x 的注解式 MCP 编程模型是怎样的？</li>
+    <li>你是如何设计 Agent 的记忆系统的（短期与长期）？</li>
+    <li>如何处理并发请求时的上下文隔离？</li>
+    <li class="new"><strong>【1.1.8 新增】</strong>Spring AI 1.1.x 的 <strong>Prompt 缓存</strong>是如何降低成本的？适用于哪些场景？</li>
+    <li class="new"><strong>【1.1.8 新增】</strong>什么是<strong>递归 Advisor</strong>？它如何帮助 Agent 进行自我反思与质量提升？</li>
+    <li class="new"><strong>【1.1.8 新增】</strong>Spring AI 1.0.x 与 1.1.x 在 MCP 支持上的主要区别是什么？</li>
+  </ol>
+
+  <!-- ============ 六、附录2 ============ -->
+  <h2>六、附录2：核心资源清单</h2>
+  <ul class="appendix-list">
+    <li><strong>主修框架：</strong>Spring AI 1.1.8 官方文档、Java-Agent-Study（GitHub）</li>
+    <li><strong>国产模型：</strong>DeepSeek、通义千问、智谱（优先用 OpenAI 兼容接口）</li>
+    <li><strong>向量数据库：</strong>pgvector（推荐）、Milvus</li>
+    <li><strong>可观测性：</strong>Micrometer Tracing + Zipkin</li>
+    <li><strong>在线工具：</strong>Md2Docx（Markdown 转 Word）</li>
+  </ul>
+
+  <!-- ============ 页脚 ============ -->
+  <footer>
+    <p><strong>最后叮嘱：</strong>这份日历表已按 Spring AI 1.1.8 对好号。1.1.x 是 1.x 系列的功能线，
+    相比 1.0.x 带来了原生 MCP、Prompt 缓存、递归 Advisor 等能力，与你第三阶段的学习目标高度契合。
+    核心原则还是“每天都有代码产出”。如果哪天卡住了，带着具体日期和报错回来找我。
+    祝你 2026 收官之战大获全胜！ <span class="rocket">🚀</span></p>
+  </footer>
+
+</div>
+</body>
+</html>

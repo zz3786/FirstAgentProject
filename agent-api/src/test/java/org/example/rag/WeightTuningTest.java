@@ -4,15 +4,13 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.example.rag.config.RagProperties;
-import org.example.rag.service.HybridSearchService;
+import org.example.rag.retrieval.service.HybridSearchService;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ClassPathResource;
 
-import java.util.Arrays;
 import java.util.List;
 
 @Slf4j

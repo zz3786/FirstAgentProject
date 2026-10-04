@@ -1,8 +1,8 @@
 package org.example.rag;
 
 import lombok.extern.slf4j.Slf4j;
-import org.example.rag.service.DocumentIngestService;
-import org.example.rag.service.HybridSearchService;
+import org.example.rag.ingest.service.DocumentIngestService;
+import org.example.rag.retrieval.service.HybridSearchService;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

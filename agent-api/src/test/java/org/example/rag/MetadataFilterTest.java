@@ -1,9 +1,9 @@
 package org.example.rag;
 
 import lombok.extern.slf4j.Slf4j;
-import org.example.rag.model.RagFilter;
-import org.example.rag.service.DocumentIngestService;
-import org.example.rag.service.HybridSearchService;
+import org.example.rag.ingest.service.DocumentIngestService;
+import org.example.rag.shared.model.RagFilter;
+import org.example.rag.retrieval.service.HybridSearchService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.document.Document;

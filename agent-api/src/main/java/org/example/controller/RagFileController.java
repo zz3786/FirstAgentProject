@@ -1,6 +1,6 @@
 package org.example.controller;
 
-import org.example.rag.config.RagProperties;
+import org.example.rag.ingest.config.IngestProperties;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -16,10 +16,10 @@ import java.nio.charset.StandardCharsets;
 @RequestMapping("/rag/file")
 public class RagFileController {
 
-    private final RagProperties ragProperties;
+    private final IngestProperties ingestProperties;
 
-    public RagFileController(RagProperties ragProperties) {
-        this.ragProperties = ragProperties;
+    public RagFileController(IngestProperties ingestProperties) {
+        this.ingestProperties = ingestProperties;
     }
 
     /**
@@ -33,7 +33,7 @@ public class RagFileController {
             return ResponseEntity.badRequest().build();
         }
 
-        File dir = new File(ragProperties.getFileStorageDir());
+        File dir = new File(ingestProperties.getFileStorageDir());
         // ★ 匹配 {docId}.{ext}
         File[] files = dir.listFiles((d, n) -> n.startsWith(docId + "."));
 

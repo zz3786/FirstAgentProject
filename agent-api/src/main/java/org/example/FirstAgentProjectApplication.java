@@ -13,7 +13,7 @@ import org.springframework.retry.annotation.EnableRetry;
 @Slf4j
 @SpringBootApplication
 @EnableRetry
-@MapperScan("org.example.rag.mapper")   // ← 加这个
+@MapperScan("org.example.rag.**.mapper")
 public class FirstAgentProjectApplication {
 
     public static void main(String[] args) {

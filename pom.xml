@@ -16,13 +16,12 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-
     <modules>
         <module>agent-common</module>
         <module>agent-tools</module>
         <module>agent-cache</module>
         <module>agent-memory</module>
-        <module>agent-rag</module>       <!-- RAG 在 core 之前 -->
+        <module>agent-rag</module>
         <module>agent-core</module>
         <module>agent-api</module>
     </modules>

@@ -58,9 +58,9 @@ spring:
 mybatis:
   mapper-locations: classpath*:mapper/**/*.xml
   type-aliases-package: org.example.rag.entity
-  configuration:
-    map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+#  configuration:
+#    map-underscore-to-camel-case: true
+#    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 logging:
   level:
@@ -74,24 +74,23 @@ logging:
 
 app:
   rag:
-    file-storage-dir: D:/DevelopmentTool/qdrant/rag-files/   # → fileStorageDir
-    #增量更新配置
-    listen-files-dir: D:/download/testVectorData             # 监听目录
-    scan-interval-ms: 300000                                  # 扫描间隔 60 秒
-    incremental-enabled: true                                # 是否启用增量更新
-    top-k: 5                                                # → topK
-    similarity-threshold: 0.5                                # → similarityThreshold
-    rrf-k: 60
-    recall-multiplier: 2
-    # ↓ 新增：TEI 远程重排序
-    rerank:
-      api-url: http://localhost:8081/rerank    # ★ 端口是 8081
-      timeout-seconds: 60
-      min-score: 0.3    # ★ 阈值
-    #BM25权重配比
-    fusion-strategy: weighted    # 或 rrf
-    vector-weight: 0.7
-    keyword-weight: 0.3
+    ingest:                            # ★ 摄取配置
+      file-storage-dir: D:/DevelopmentTool/qdrant/rag-files/
+      listen-files-dir: D:/download/testVectorData
+      scan-interval-ms: 300000
+      incremental-enabled: true
+    retrieval:                         # ★ 检索配置
+      top-k: 2
+      similarity-threshold: 0.5
+      rrf-k: 60
+      recall-multiplier: 2
+      rerank:
+        api-url: http://localhost:8081/rerank
+        timeout-seconds: 8
+        min-score: 0.3
+      fusion-strategy: weighted
+      vector-weight: 0.7
+      keyword-weight: 0.3
 
   # ★ D45 新增：OCR 配置
   ocr:
@@ -157,8 +156,17 @@ app:
     max-weight: 1.0
     min-weight: 0.2
 
+  # ★ D55：异步索引
+  async-index:
+    enabled: true
+    concurrency: 4                # 4 个文件并发
+    queue-capacity: 500           # 背压队列
+    per-file-timeout-seconds: 300 # 单文件 5 分钟
+    min-interval-ms: 200          # 文件间最小间隔——防 API 429
+    progress-log-interval: 10     # 每 10 个文件打一次进度
+
 
 
   compaction:
-    max-messages-before-compaction: 10
-    keep-recent-messages: 3
+    max-messages-before-compaction: 20
+    keep-recent-messages: 8
