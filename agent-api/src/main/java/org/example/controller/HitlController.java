@@ -3,9 +3,9 @@ package org.example.controller;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.example.api.common.ApiResponse;
-import org.example.workflow.conditional.OrderConditionalWorkflow;
-import org.example.workflow.core.hitl.model.HitlTask;
-import org.example.workflow.core.hitl.service.HitlService;
+import org.example.core.workflow.conditional.order.OrderConditionalWorkflow;
+import org.example.core.workflow.core.hitl.model.HitlTask;
+import org.example.core.workflow.core.hitl.service.HitlService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;

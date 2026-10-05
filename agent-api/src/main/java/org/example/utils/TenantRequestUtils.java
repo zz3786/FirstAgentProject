@@ -3,6 +3,7 @@ package org.example.utils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.example.common.utils.TenantUtils;
+import org.example.core.utils.SessionUtils;
 
 /**
  * D54 租户工具（Web 层）——从 HttpServletRequest 拿租户信息

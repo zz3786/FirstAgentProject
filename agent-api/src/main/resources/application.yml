@@ -1,3 +1,6 @@
+# ============================================================
+# 服务器配置
+# ============================================================
 server:
   port: 8080
   servlet:
@@ -5,14 +8,19 @@ server:
     session:
       timeout: 86400
 
+# ============================================================
+# Spring 核心配置
+# ============================================================
 spring:
   # ========== 排除不需要的 OpenAI 自动配置 ==========
+  # 本项目只用 Chat 和 Embedding，不需要 Audio/Image/Moderation
   autoconfigure:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
+
   ai:
     openai:
       # ========== Chat 模型（DeepSeek）==========
@@ -24,7 +32,6 @@ spring:
 
       # ========== Embedding 模型（阿里云百炼）==========
       embedding:
-        # 用控制台显示的专属域名
         base-url: https://llm-flmgbipyi282dygn.cn-beijing.maas.aliyuncs.com/compatible-mode
         api-key: ${DASHSCOPE_API_KEY}
         options:
@@ -39,7 +46,7 @@ spring:
         collection-name: agent-rag
         initialize-schema: true
         use-tls: false
-        check-compatibility: false         # ← 别忘加这行
+        check-compatibility: false
 
   datasource:
     url: "jdbc:mysql://${MYSQL_HOST}:3306/rag?useUnicode=true&autoReconnect=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai"
@@ -54,17 +61,21 @@ spring:
       port: 6379
       password: hfcx_redis_123456
 
-# ↓ mybatis 顶格，与 spring 平级
+# ============================================================
+# MyBatis
+# ============================================================
 mybatis:
   mapper-locations: classpath*:mapper/**/*.xml
+  # ⚠️ 重构后 rag 包名可能变了——如果启动报找不到别名，改成实际的 entity 包
   type-aliases-package: org.example.rag.entity
-#  configuration:
-#    map-underscore-to-camel-case: true
-#    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
+# ============================================================
+# 日志
+# ============================================================
 logging:
   level:
-    org.springframework.web.client: TRACE          # ← DEBUG 改成 TRACE
+    # ⚠️ TRACE 级日志会在生产环境输出海量内容——建议改成 DEBUG 或 WARN
+    org.springframework.web.client: TRACE
     org.springframework.web.client.DefaultRestClient: TRACE
     org.springframework.http.client: TRACE
     org.springframework.ai.openai: DEBUG
@@ -72,14 +83,18 @@ logging:
     org.mybatis.spring: DEBUG
     org.apache.ibatis: DEBUG
 
+# ============================================================
+# 应用配置
+# ============================================================
 app:
+  # ========== RAG 摄取与检索 ==========
   rag:
-    ingest:                            # ★ 摄取配置
+    ingest:
       file-storage-dir: D:/DevelopmentTool/qdrant/rag-files/
       listen-files-dir: D:/download/testVectorData
       scan-interval-ms: 3000000
       incremental-enabled: true
-    retrieval:                         # ★ 检索配置
+    retrieval:
       top-k: 2
       similarity-threshold: 0.5
       rrf-k: 60
@@ -92,22 +107,22 @@ app:
       vector-weight: 0.7
       keyword-weight: 0.3
 
-  # ★ D45 新增：OCR 配置
+  # ========== OCR ==========
   ocr:
-    enabled: true                          # 关闭后跳过所有 OCR，图片入库会返回空
-    tessdata-path: ./tessdata/             # 语言包目录
-    language: chi_sim+eng                  # 中文简体 + 英文
-    timeout-seconds: 30                    # 单张图 OCR 超时
-    min-text-length: 5                     # 少于 5 字视为无有效文本
-    page-seg-mode: 3                       # PSM 3 = 全自动
+    enabled: true
+    tessdata-path: ./tessdata/
+    language: chi_sim+eng
+    timeout-seconds: 30
+    min-text-length: 5
+    page-seg-mode: 3
 
-  #D47澄清判定配置
+  # ========== 澄清判定 ==========
   clarification:
     enabled: true
     min-top-score: 0.5
     min-qualified-docs: 2
 
-  #D50 新增：对话历史向量化
+  # ========== 对话历史向量化（D50） ==========
   conversation-memory:
     enabled: true
     index-name: conversation-memory-index
@@ -117,17 +132,16 @@ app:
     max-assistant-chars: 2000
     min-user-message-chars: 5
     exclude-current-conversation: true
-    # ★ D54：SCAN 查询配置
     scan-batch-size: 500
     scan-timeout-seconds: 5
     max-conversation-ids: 1000
 
-  #D51个性化检索逻辑开关
+  # ========== 个性化检索（D51） ==========
   retrieval:
     profile:
-      enabled: true     # 灰度上线，观察后再全量
+      enabled: true
 
-  #缓存模块配置
+  # ========== 语义缓存 ==========
   cache:
     semantic:
       enabled: true
@@ -137,7 +151,7 @@ app:
       ttl-hours: 24
       max-cache-per-user: 200
 
-  # ★ D52 新增：主动推荐
+  # ========== 主动推荐（D52） ==========
   recommendation:
     enabled: true
     top-k: 3
@@ -146,7 +160,7 @@ app:
     prefix: "[RECOMMEND]"
     max-snippet-chars: 80
 
-  # ★ D53：用户兴趣标签
+  # ========== 用户兴趣标签（D53） ==========
   user-interest:
     enabled: true
     inject-top-n: 5
@@ -156,20 +170,21 @@ app:
     max-weight: 1.0
     min-weight: 0.2
 
-  # ★ D55：异步索引
+  # ========== 异步索引（D55） ==========
   async-index:
     enabled: true
-    concurrency: 4                # 4 个文件并发
-    queue-capacity: 500           # 背压队列
-    per-file-timeout-seconds: 300 # 单文件 5 分钟
-    min-interval-ms: 200          # 文件间最小间隔——防 API 429
-    progress-log-interval: 10     # 每 10 个文件打一次进度
+    concurrency: 4
+    queue-capacity: 500
+    per-file-timeout-seconds: 300
+    min-interval-ms: 200
+    progress-log-interval: 10
 
+  # ========== 会话压缩 ==========
   compaction:
-    max-messages-before-compaction: 20  #应为配置文件里配置 20 条就开始压缩了（默认 100，本项目 yml 覆盖为 20——便于演示）
+    max-messages-before-compaction: 20
     keep-recent-messages: 8
 
-  #大模型生成工作计划执行工作流配置
+  # ========== Plan-and-Execute（D57.5） ==========
   plan:
     enabled: true
     max-steps: 8
@@ -180,7 +195,6 @@ app:
     max-replans: 2
     persist-state: true
     state-ttl-hours: 24
-    # 工具白名单——只有列在这的工具才能被 Plan 使用
     allowed-tools:
       - calculate
       - analyzeText
@@ -190,39 +204,43 @@ app:
       - getJoke
       - getQuote
 
-  #条件工作流
-  conditional-workflow:
-    enabled: true
-    default-step-timeout-ms: 10000
-    total-timeout-ms: 60000
-    idempotency-lock-seconds: 300
-    escalate-unknown-status: true
-    dry-run: false
+  # ========== 工作流引擎 ==========
+  workflow:
+    # 引擎级——所有工作流共用
+    engine:
+      enabled: true
+      default-step-timeout-ms: 10000
+      total-timeout-ms: 60000
+      idempotency-lock-seconds: 300
+      dry-run: false
+      # 单节点超时覆盖——key = 节点名
+      step-timeout-overrides:
+        LoadOrderNode: 5000
+        EscalateToHumanNode: 30000
 
-    # 步长超时覆盖（可选）
-    step-timeout-overrides:
-      LoadOrderNode: 5000       # 查询订单给更短超时
-      EscalateToHumanNode: 30000 # 转人工给更长超时（可能要调多个系统）
+    # 订单工作流专属
+    order:
+      escalate-unknown-status: true
+      # 决策路由表——订单状态 → 目标节点
+      routing-table:
+        PENDING_PAYMENT: PaymentReminderNode
+        SHIPPED: LogisticsTrackingNode
+        SIGNED: SatisfactionSurveyNode
+        REFUNDING: EscalateToHumanNode
+        REFUNDED: EscalateToHumanNode
+        UNKNOWN: EscalateToHumanNode
 
-    # 决策路由表（可通过 yml 覆盖默认规则）
-    routing-table:
-      PENDING_PAYMENT: PaymentReminderNode
-      SHIPPED: LogisticsTrackingNode
-      SIGNED: SatisfactionSurveyNode
-      REFUNDING: EscalateToHumanNode
-      REFUNDED: EscalateToHumanNode
-      UNKNOWN: EscalateToHumanNode
-
-  # D60 通用并行执行器
+  # ========== 并行执行（D60） ==========
   parallel:
     enabled: true
-    use-virtual-threads: true     # Java 21 虚拟线程
+    use-virtual-threads: true
     platform-pool-size: 16
     platform-queue-capacity: 256
     default-timeout-ms: 5000
     default-task-timeout-ms: 3000
     record-task-timing: true
-  # D61 重试机制配置
+
+  # ========== 重试（D61） ==========
   retry:
     enabled: true
     default-max-attempts: 3
@@ -230,40 +248,39 @@ app:
     default-backoff-multiplier: 2.0
     default-max-backoff-ms: 5000
     default-jitter: true
-
-    # 按数据源覆盖——不同依赖容忍度不同
     override:
       order-basic:
-        max-attempts: 2          # 订单库——重试 2 次够了
+        max-attempts: 2
         backoff-ms: 100
       logistics:
-        max-attempts: 5          # 物流系统不稳定——多试几次
+        max-attempts: 5
         backoff-ms: 500
         max-backoff-ms: 3000
       user-profile:
-        max-attempts: 2          # 用户中心很稳，少重试
+        max-attempts: 2
         backoff-ms: 100
 
-  #D62 人工介入配置
+  # ========== 人工介入（D62） ==========
   hitl:
     enabled: true
     default-timeout-minutes: 30
     scan-interval-ms: 60000
     default-assignee: admin
     auto-timeout-enabled: true
-    timeout-fallback: REJECT   # 超时后默认拒绝（保守）；也可设 AUTO_APPROVE
+    timeout-fallback: REJECT
     task-history-ttl-hours: 72
-
+    # 通知器实现——log（默认）/ 自定义
+    # notifier: log
     approval-required-branches:
       - PaymentReminderNode
       - EscalateToHumanNode
-
     approval-required-statuses:
       - REFUNDING
 
+  # ========== DSL（D63） ==========
   dsl:
     enabled: true
-    hot-reload-enabled: false       # 生产默认关闭；开发可开
+    hot-reload-enabled: false
     validate-on-load: true
     classpath-patterns:
       - classpath*:workflows/*.yaml

@@ -3,13 +3,12 @@ package org.example.controller;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.example.api.common.ApiResponse;
-import org.example.workflow.core.dsl.loader.WorkflowLoader;
-import org.example.workflow.core.dsl.model.WorkflowDefinition;
-import org.example.workflow.core.dsl.registry.WorkflowDefinitionRegistry;
+import org.example.core.workflow.core.dsl.loader.WorkflowLoader;
+import org.example.core.workflow.core.dsl.model.WorkflowDefinition;
+import org.example.core.workflow.core.dsl.registry.WorkflowDefinitionRegistry;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 
 /**

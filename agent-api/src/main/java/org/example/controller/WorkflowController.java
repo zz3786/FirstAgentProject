@@ -2,9 +2,9 @@ package org.example.controller;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.api.common.ApiResponse;
-import org.example.workflow.SequentialEmailWorkflow;
-import org.example.workflow.model.WorkflowRequest;
-import org.example.workflow.model.WorkflowResult;
+import org.example.core.workflow.sequential.email.SequentialEmailWorkflow;
+import org.example.core.workflow.sequential.email.model.EmailWorkflowRequest;
+import org.example.core.workflow.sequential.email.model.EmailWorkflowResult;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -39,8 +39,8 @@ public class WorkflowController {
      * </pre>
      */
     @PostMapping("/email")
-    public ApiResponse<WorkflowResult> sendEmail(@RequestBody EmailRequest req) {
-        WorkflowRequest request = new WorkflowRequest(
+    public ApiResponse<EmailWorkflowResult> sendEmail(@RequestBody EmailRequest req) {
+        EmailWorkflowRequest request = new EmailWorkflowRequest(
                 req.conversationId(),
                 req.fullUserId(),
                 req.query(),

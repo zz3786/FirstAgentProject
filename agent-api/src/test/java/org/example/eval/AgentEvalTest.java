@@ -1,6 +1,7 @@
 package org.example.eval;
 
 
+import org.example.core.chat.service.ChatService;
 import org.example.memory.LongTermMemoryService;
 import org.example.preference.UserPreferenceService;
 import org.junit.jupiter.api.*;
@@ -10,7 +11,6 @@ import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.Set;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AgentEvalTest {
 
     @Autowired
-    private org.example.service.ChatService chatService;
+    private ChatService chatService;
 
     @Autowired
     private UserPreferenceService preferenceService;
