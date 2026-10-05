@@ -77,7 +77,7 @@ app:
     ingest:                            # ★ 摄取配置
       file-storage-dir: D:/DevelopmentTool/qdrant/rag-files/
       listen-files-dir: D:/download/testVectorData
-      scan-interval-ms: 300000
+      scan-interval-ms: 3000000
       incremental-enabled: true
     retrieval:                         # ★ 检索配置
       top-k: 2
@@ -165,8 +165,107 @@ app:
     min-interval-ms: 200          # 文件间最小间隔——防 API 429
     progress-log-interval: 10     # 每 10 个文件打一次进度
 
-
-
   compaction:
     max-messages-before-compaction: 20  #应为配置文件里配置 20 条就开始压缩了（默认 100，本项目 yml 覆盖为 20——便于演示）
     keep-recent-messages: 8
+
+  #大模型生成工作计划执行工作流配置
+  plan:
+    enabled: true
+    max-steps: 8
+    max-description-length: 200
+    total-timeout-ms: 120000
+    per-step-timeout-ms: 30000
+    per-step-retry: 2
+    max-replans: 2
+    persist-state: true
+    state-ttl-hours: 24
+    # 工具白名单——只有列在这的工具才能被 Plan 使用
+    allowed-tools:
+      - calculate
+      - analyzeText
+      - getOrderStatus
+      - createTodo
+      - listTodos
+      - getJoke
+      - getQuote
+
+  #条件工作流
+  conditional-workflow:
+    enabled: true
+    default-step-timeout-ms: 10000
+    total-timeout-ms: 60000
+    idempotency-lock-seconds: 300
+    escalate-unknown-status: true
+    dry-run: false
+
+    # 步长超时覆盖（可选）
+    step-timeout-overrides:
+      LoadOrderNode: 5000       # 查询订单给更短超时
+      EscalateToHumanNode: 30000 # 转人工给更长超时（可能要调多个系统）
+
+    # 决策路由表（可通过 yml 覆盖默认规则）
+    routing-table:
+      PENDING_PAYMENT: PaymentReminderNode
+      SHIPPED: LogisticsTrackingNode
+      SIGNED: SatisfactionSurveyNode
+      REFUNDING: EscalateToHumanNode
+      REFUNDED: EscalateToHumanNode
+      UNKNOWN: EscalateToHumanNode
+
+  # D60 通用并行执行器
+  parallel:
+    enabled: true
+    use-virtual-threads: true     # Java 21 虚拟线程
+    platform-pool-size: 16
+    platform-queue-capacity: 256
+    default-timeout-ms: 5000
+    default-task-timeout-ms: 3000
+    record-task-timing: true
+  # D61 重试机制配置
+  retry:
+    enabled: true
+    default-max-attempts: 3
+    default-backoff-ms: 200
+    default-backoff-multiplier: 2.0
+    default-max-backoff-ms: 5000
+    default-jitter: true
+
+    # 按数据源覆盖——不同依赖容忍度不同
+    override:
+      order-basic:
+        max-attempts: 2          # 订单库——重试 2 次够了
+        backoff-ms: 100
+      logistics:
+        max-attempts: 5          # 物流系统不稳定——多试几次
+        backoff-ms: 500
+        max-backoff-ms: 3000
+      user-profile:
+        max-attempts: 2          # 用户中心很稳，少重试
+        backoff-ms: 100
+
+  #D62 人工介入配置
+  hitl:
+    enabled: true
+    default-timeout-minutes: 30
+    scan-interval-ms: 60000
+    default-assignee: admin
+    auto-timeout-enabled: true
+    timeout-fallback: REJECT   # 超时后默认拒绝（保守）；也可设 AUTO_APPROVE
+    task-history-ttl-hours: 72
+
+    approval-required-branches:
+      - PaymentReminderNode
+      - EscalateToHumanNode
+
+    approval-required-statuses:
+      - REFUNDING
+
+  dsl:
+    enabled: true
+    hot-reload-enabled: false       # 生产默认关闭；开发可开
+    validate-on-load: true
+    classpath-patterns:
+      - classpath*:workflows/*.yaml
+    scan-dirs:
+      - ./workflows

@@ -1,0 +1,95 @@
+workflow:
+  id: order-process
+  name: 订单处理工作流
+  version: 1.0.0
+  description: 演示顺序+条件+并行+重试+HITL 的完整工作流
+
+  # ========== 全局默认配置 ==========
+  defaults:
+    timeout-ms: 60000
+    retry:
+      max-attempts: 3
+      backoff-ms: 200
+      policy: EXPONENTIAL_JITTER
+
+  # ========== 变量 ==========
+  variables:
+    orderApiTimeout: 5000
+
+  # ========== 节点定义 ==========
+  nodes:
+    # ① 并行拉取
+    - id: fetch
+      type: parallel
+      tasks:
+        - name: order-basic
+          ref: OrderFetcher
+          critical: true
+        - name: logistics
+          ref: LogisticsFetcher
+          fallback: "暂无物流信息"
+        - name: user-profile
+          ref: UserProfileFetcher
+          fallback: "普通用户"
+      timeout-ms: 5000
+
+    # ② 决策
+    - id: decide
+      type: node
+      ref: DecisionNode
+
+    # ③ HITL 审批（条件触发）
+    - id: hitl-check
+      type: hitl
+      when: "${branchTaken} in ['PaymentReminderNode', 'EscalateToHumanNode']"
+      assignee: admin
+      timeout-minutes: 30
+      fallback: REJECT
+      prompt: |
+        订单处理请求需要您审批。
+        订单号：${orderId}
+        金额：${amount} 元
+        分支：${branchTaken}
+
+    # ④ 条件分支
+    - id: route
+      type: switch
+      on: "${branchTaken}"
+      cases:
+        PaymentReminderNode: payment
+        LogisticsTrackingNode: logistics
+        SatisfactionSurveyNode: survey
+      default: escalate
+
+    # ⑤ 各业务节点
+    - id: payment
+      type: node
+      ref: PaymentReminderNode
+      retry:
+        max-attempts: 5
+        backoff-ms: 500
+
+    - id: logistics
+      type: node
+      ref: LogisticsTrackingNode
+
+    - id: survey
+      type: node
+      ref: SatisfactionSurveyNode
+
+    - id: escalate
+      type: node
+      ref: EscalateToHumanNode
+
+    # ⑥ 审计
+    - id: audit
+      type: node
+      ref: AuditLogNode
+
+  # ========== 执行流 ==========
+  flow:
+    - fetch
+    - decide
+    - hitl-check
+    - route
+    - audit
