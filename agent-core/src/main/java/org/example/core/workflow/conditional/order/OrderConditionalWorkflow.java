@@ -5,6 +5,7 @@ import org.example.core.workflow.conditional.order.config.OrderWorkflowPropertie
 import org.example.core.workflow.conditional.order.model.OrderInfo;
 import org.example.core.workflow.conditional.order.model.OrderStatus;
 import org.example.core.workflow.conditional.order.model.OrderWorkflowState;
+import org.example.core.workflow.core.config.WorkflowEngineProperties;
 import org.example.core.workflow.core.exception.WorkflowNodeException;
 import org.example.core.workflow.core.hitl.model.*;
 import org.example.core.workflow.core.model.NodeResult;
@@ -18,7 +19,6 @@ import org.example.core.workflow.conditional.order.nodes.ParallelFetchNode;
 import org.example.core.workflow.core.registry.WorkflowNodeRegistry;
 import org.example.core.workflow.core.hitl.exception.HitlException;
 import org.example.core.workflow.core.hitl.exception.WorkflowSuspendedException;
-import org.example.workflow.core.hitl.model.*;
 import org.example.core.workflow.core.hitl.service.HitlService;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -57,30 +57,28 @@ public class OrderConditionalWorkflow {
 
     private static final String LOCK_PREFIX = "ORDER_WF_LOCK:";
 
+    private final WorkflowEngineProperties workflowEngineProperties;
     private final HitlApprovalNode hitlApprovalNode;
     private final HitlService hitlService;
     private final ParallelFetchNode parallelFetchNode;
-    private final LoadOrderNode loadOrderNode;
     private final DecisionNode decisionNode;
     private final AuditLogNode auditLogNode;
     private final WorkflowNodeRegistry registry;
-    private final OrderWorkflowProperties props;
     private final StringRedisTemplate redis;
 
-    public OrderConditionalWorkflow(HitlApprovalNode hitlApprovalNode, HitlService hitlService, ParallelFetchNode parallelFetchNode, LoadOrderNode loadOrderNode,
+    public OrderConditionalWorkflow(WorkflowEngineProperties workflowEngineProperties, HitlApprovalNode hitlApprovalNode, HitlService hitlService, ParallelFetchNode parallelFetchNode, LoadOrderNode loadOrderNode,
                                     DecisionNode decisionNode,
                                     AuditLogNode auditLogNode,
                                     WorkflowNodeRegistry registry,
                                     OrderWorkflowProperties props,
                                     StringRedisTemplate redis) {
+        this.workflowEngineProperties = workflowEngineProperties;
         this.hitlApprovalNode = hitlApprovalNode;
         this.hitlService = hitlService;
         this.parallelFetchNode = parallelFetchNode;
-        this.loadOrderNode = loadOrderNode;
         this.decisionNode = decisionNode;
         this.auditLogNode = auditLogNode;
         this.registry = registry;
-        this.props = props;
         this.redis = redis;
     }
 
@@ -88,16 +86,16 @@ public class OrderConditionalWorkflow {
      * 处理一个订单
      */
     public Map<String, Object> process(String orderId, String fullUserId) {
-        if (!props.isEnabled()) {
+        if (!workflowEngineProperties.isEnabled()) {
             return Map.of("success", false, "message", "工作流未启用");
         }
 
         String executionId = UUID.randomUUID().toString();
-        OrderWorkflowState state = new OrderWorkflowState(orderId, fullUserId, executionId, props.getTotalTimeoutMs());
+        OrderWorkflowState state = new OrderWorkflowState(orderId, fullUserId, executionId, workflowEngineProperties.getTotalTimeoutMs());
 
         // ① 幂等锁——防止同一订单重复处理
         String lockKey = LOCK_PREFIX + orderId;
-        Boolean locked = redis.opsForValue().setIfAbsent(lockKey, executionId, Duration.ofSeconds(props.getIdempotencyLockSeconds()));
+        Boolean locked = redis.opsForValue().setIfAbsent(lockKey, executionId, Duration.ofSeconds(workflowEngineProperties.getIdempotencyLockSeconds()));
 
         if (!Boolean.TRUE.equals(locked)) {
             log.warn("订单 {} 正在处理中，拒绝重复请求", orderId);

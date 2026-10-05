@@ -3,6 +3,7 @@ package org.example.core.workflow.conditional.order.nodes;
 import lombok.extern.slf4j.Slf4j;
 import org.example.core.workflow.conditional.order.config.OrderWorkflowProperties;
 import org.example.core.workflow.conditional.order.model.OrderWorkflowState;
+import org.example.core.workflow.core.config.WorkflowEngineProperties;
 import org.example.core.workflow.core.node.AbstractWorkflowNode;
 import org.example.core.workflow.core.hitl.config.HitlProperties;
 import org.example.core.workflow.core.hitl.exception.WorkflowSuspendedException;
@@ -41,7 +42,7 @@ public class HitlApprovalNode extends AbstractWorkflowNode {
     private final HitlService hitlService;
     private final HitlProperties hitlProps;
 
-    public HitlApprovalNode(OrderWorkflowProperties props,
+    public HitlApprovalNode(WorkflowEngineProperties props,
                             HitlService hitlService,
                             HitlProperties hitlProps) {
         super(props);

@@ -10,6 +10,7 @@ import org.example.core.workflow.conditional.order.fetcher.UserProfileFetcher;
 import org.example.core.workflow.conditional.order.model.OrderBasicInfo;
 import org.example.core.workflow.conditional.order.model.OrderEnrichContext;
 import org.example.core.workflow.conditional.order.model.OrderWorkflowState;
+import org.example.core.workflow.core.config.WorkflowEngineProperties;
 import org.example.core.workflow.core.node.AbstractWorkflowNode;
 import org.example.core.workflow.core.parallel.ParallelExecutor;
 import org.example.core.workflow.core.parallel.model.ParallelResult;
@@ -40,7 +41,7 @@ public class ParallelFetchNode extends AbstractWorkflowNode {
     private final LogisticsFetcher logisticsFetcher;
     private final UserProfileFetcher userProfileFetcher;
 
-    public ParallelFetchNode(OrderWorkflowProperties props,
+    public ParallelFetchNode(WorkflowEngineProperties props,
                              ParallelExecutor parallelExecutor,
                              OrderFetcher orderFetcher,
                              LogisticsFetcher logisticsFetcher,

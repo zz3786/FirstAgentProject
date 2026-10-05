@@ -3,7 +3,6 @@ package org.example.core.plan.executor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.core.plan.config.PlanProperties;
 import org.example.core.plan.model.*;
-import org.example.plan.model.*;
 import org.example.core.plan.planner.PlanValidator;
 import org.example.core.plan.planner.ReplannerService;
 import org.example.core.plan.store.PlanStateStore;

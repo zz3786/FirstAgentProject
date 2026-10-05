@@ -3,6 +3,7 @@ package org.example.core.workflow.core.node;
 import lombok.extern.slf4j.Slf4j;
 import org.example.common.utils.TextUtils;
 import org.example.core.workflow.conditional.order.config.OrderWorkflowProperties;
+import org.example.core.workflow.core.config.WorkflowEngineProperties;
 import org.example.core.workflow.core.exception.WorkflowNodeException;
 import org.example.core.workflow.core.model.NodeResult;
 import org.example.core.workflow.conditional.order.model.OrderWorkflowState;
@@ -17,9 +18,9 @@ import org.example.core.workflow.core.model.WorkflowTrace;
 @Slf4j
 public abstract class AbstractWorkflowNode implements WorkflowNode {
 
-    protected final OrderWorkflowProperties props;
+    protected final WorkflowEngineProperties props;
 
-    protected AbstractWorkflowNode(OrderWorkflowProperties props) {
+    protected AbstractWorkflowNode(WorkflowEngineProperties props) {
         this.props = props;
     }
 

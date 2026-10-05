@@ -3,6 +3,7 @@ package org.example.core.workflow.conditional.order.nodes;
 import lombok.extern.slf4j.Slf4j;
 import org.example.core.workflow.conditional.order.config.OrderWorkflowProperties;
 import org.example.core.workflow.conditional.order.model.OrderWorkflowState;
+import org.example.core.workflow.core.config.WorkflowEngineProperties;
 import org.example.core.workflow.core.node.AbstractWorkflowNode;
 import org.example.core.workflow.conditional.order.OrderConditionalRouter;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,7 @@ public class DecisionNode extends AbstractWorkflowNode {
 
     private final OrderConditionalRouter router;
 
-    public DecisionNode(OrderWorkflowProperties props, OrderConditionalRouter router) {
+    public DecisionNode(WorkflowEngineProperties props, OrderConditionalRouter router) {
         super(props);
         this.router = router;
     }

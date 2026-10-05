@@ -3,6 +3,7 @@ package org.example.core.workflow.conditional.order.nodes;
 import lombok.extern.slf4j.Slf4j;
 import org.example.core.workflow.conditional.order.config.OrderWorkflowProperties;
 import org.example.core.workflow.conditional.order.model.OrderWorkflowState;
+import org.example.core.workflow.core.config.WorkflowEngineProperties;
 import org.example.core.workflow.core.node.AbstractWorkflowNode;
 import org.springframework.stereotype.Component;
 
@@ -13,7 +14,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class SatisfactionSurveyNode extends AbstractWorkflowNode {
 
-    public SatisfactionSurveyNode(OrderWorkflowProperties props) {
+    public SatisfactionSurveyNode(WorkflowEngineProperties props) {
         super(props);
     }
 

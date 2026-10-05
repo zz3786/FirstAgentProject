@@ -5,7 +5,6 @@ import org.example.common.audit.AuditLogger;
 import org.example.core.workflow.core.hitl.config.HitlProperties;
 import org.example.core.workflow.core.hitl.exception.HitlException;
 import org.example.core.workflow.core.hitl.model.*;
-import org.example.workflow.core.hitl.model.*;
 import org.example.core.workflow.core.hitl.notifier.HitlNotifier;
 import org.example.core.workflow.core.hitl.store.HitlTaskStore;
 import org.springframework.scheduling.annotation.Scheduled;
