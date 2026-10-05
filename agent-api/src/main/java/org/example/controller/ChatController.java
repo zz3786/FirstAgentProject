@@ -8,7 +8,7 @@ import org.example.common.audit.AuditLogger;
 import org.example.rag.shared.model.RagFilter;
 import org.example.core.chat.service.ChatService;
 import org.example.common.utils.ConversationIdUtils;
-import org.example.core.utils.SessionUtils;
+import org.example.utils.SessionUtils;
 import org.example.utils.TenantRequestUtils;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;

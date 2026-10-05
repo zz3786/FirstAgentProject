@@ -7,7 +7,7 @@ import org.example.api.common.ApiResponse;
 import org.example.core.plan.PlanAndExecuteService;
 import org.example.core.plan.model.PlanRequest;
 import org.example.core.plan.model.PlanResult;
-import org.example.core.utils.SessionUtils;
+import org.example.utils.SessionUtils;
 import org.example.utils.TenantRequestUtils;
 import org.springframework.web.bind.annotation.*;
 

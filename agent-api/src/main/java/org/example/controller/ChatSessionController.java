@@ -7,7 +7,7 @@ import org.example.common.audit.AuditLogger;
 import org.example.common.utils.ConversationIdUtils;
 import org.example.memory.ConversationMemoryService;
 import org.example.repository.RedisChatMemoryRepository;
-import org.example.core.utils.SessionUtils;
+import org.example.utils.SessionUtils;
 import org.example.utils.TenantRequestUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
