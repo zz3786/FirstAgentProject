@@ -2,7 +2,6 @@ package org.example.core.workflow.conditional.order.nodes;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.core.workflow.conditional.order.model.OrderStatus;
-import org.example.core.workflow.conditional.order.config.OrderWorkflowProperties;
 import org.example.core.workflow.conditional.order.model.OrderInfo;
 import org.example.core.workflow.conditional.order.fetcher.LogisticsFetcher;
 import org.example.core.workflow.conditional.order.fetcher.OrderFetcher;

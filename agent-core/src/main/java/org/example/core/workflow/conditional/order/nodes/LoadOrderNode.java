@@ -3,7 +3,6 @@ package org.example.core.workflow.conditional.order.nodes;
 import lombok.extern.slf4j.Slf4j;
 import org.example.core.workflow.core.config.WorkflowEngineProperties;
 import org.example.tools.OrderTools;
-import org.example.core.workflow.conditional.order.config.OrderWorkflowProperties;
 import org.example.core.workflow.conditional.order.model.OrderInfo;
 import org.example.core.workflow.conditional.order.model.OrderStatus;
 import org.example.core.workflow.conditional.order.model.OrderWorkflowState;
