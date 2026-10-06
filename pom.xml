@@ -24,6 +24,7 @@
         <module>agent-rag</module>
         <module>agent-core</module>
         <module>agent-api</module>
+        <module>agent-mcp-server</module>
     </modules>
 
     <properties>
@@ -54,6 +55,11 @@
                 <version>${spring-ai.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.example</groupId>
+                <artifactId>agent-mcp-server</artifactId>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.example</groupId>

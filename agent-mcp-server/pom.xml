@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.example</groupId>
+        <artifactId>FirstAgentProject</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>agent-mcp-server</artifactId>
+
+    <!--
+        模块定位：MCP Server 独立部署单元（D65）。
+
+        依赖原则：
+          ① 只依赖 agent-tools（复用业务逻辑），不依赖 agent-core / agent-api
+          ② 引入 spring-ai-starter-mcp-server-webmvc 获得 MCP Server 能力
+          ③ 不引入数据库 / Redis / Qdrant —— MCP Server 本身无状态
+
+        部署形态：
+          - 独立启动，端口 8081
+          - 传输协议：STREAMABLE（生产） / STDIO（本地开发）
+          - 通过 HTTP POST /mcp 接收 JSON-RPC 请求
+    -->
+
+    <dependencies>
+
+        <!-- ============================================================
+             ① MCP Server WebMVC Starter
+             提供：HTTP 传输 + MCP Server 自动配置
+             ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             ② MCP Annotations —— @McpTool / @McpResource / @McpPrompt
+             ★ 关键：这个依赖不被 starter 传递引入，必须显式声明。
+             坐标：org.springframework.ai:spring-ai-mcp-annotations
+             包路径：org.springframework.ai.mcp.annotation
+             版本：由 spring-ai-bom 管理（应为 1.1.8）
+             ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-mcp-annotations</artifactId>
+        </dependency>
+
+        <!-- ③ 复用业务逻辑 -->
+        <dependency>
+            <groupId>org.example</groupId>
+            <artifactId>agent-tools</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.example</groupId>
+            <artifactId>agent-common</artifactId>
+        </dependency>
+
+        <!-- ④ Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 可执行 jar —— 支持 java -jar 独立启动 -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

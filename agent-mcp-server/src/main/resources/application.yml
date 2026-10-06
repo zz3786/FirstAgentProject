@@ -1,0 +1,83 @@
+# ============================================================
+# MCP Server 独立配置（D65）
+# ------------------------------------------------------------
+# 这个 yml 只服务于 MCP Server 进程。
+# 不导入 agent-api 的 config/*.yml —— 两者是独立的部署单元。
+# ============================================================
+
+server:
+  # MCP Server 独立端口——不和 agent-api 的 8080 冲突
+  port: 8086
+
+spring:
+  application:
+    name: agent-mcp-server
+
+  # ============================================================
+  # MCP Server 核心配置
+  # ------------------------------------------------------------
+  # 所有属性前缀：spring.ai.mcp.server
+  # ============================================================
+  ai:
+    mcp:
+      server:
+
+        # ① 总开关
+        enabled: true
+
+        # ② ★ 传输协议：STREAMABLE（生产）/ STDIO（本地开发）
+        #    STREAMABLE = HTTP POST + 可选 SSE 流，官方远程部署标准
+        #    STDIO      = 子进程标准输入输出，仅本地调试
+        #    切换只改这一行，注解代码完全不变。
+        protocol: STREAMABLE
+
+        # ③ 服务器标识——MCP 握手时告知 Client 自己的身份
+        name: agent-mcp-server
+        version: 1.0.0
+        instructions: |
+          本服务器暴露订单查询、计算器、RAG 文档读取等能力。
+          工具调用请严格按照 description 中的参数要求传参。
+
+        # ④ 同步模式——和 WebMVC 栈匹配
+        type: SYNC
+
+        # ⑤ 请求超时——单次 MCP 调用的最长等待时间
+        request-timeout: 30s
+
+        # ⑥ 能力开关——按需启用，不用的关掉减少暴露面
+        capabilities:
+          tool: true           # 启用 @McpTool
+          resource: true       # 启用 @McpResource
+          prompt: true         # 启用 @McpPrompt
+          completion: false    # 本模块不用自动补全
+
+        # ⑦ 变更通知——Streamable HTTP 特有
+        #    true = Server 工具/资源变更时主动通知 Client
+        #    D68 动态发现会用到
+        tool-change-notification: true
+        resource-change-notification: true
+        prompt-change-notification: true
+
+        # ⑧ ★ 注解扫描——自动发现 @McpTool / @McpResource / @McpPrompt
+        annotation-scanner:
+          enabled: true
+
+        # ⑨ ★ Streamable HTTP 专属配置
+        streamable-http:
+          # MCP 端点路径——Client 连 http://localhost:8081/mcp
+          mcp-endpoint: /mcp
+          # 连接保活间隔（仅 SSE 流式响应时生效）
+          keep-alive-interval: 30s
+          # 是否禁止 DELETE 请求（默认 false，允许 Client 主动断开）
+          disallow-delete: false
+
+# ============================================================
+# 日志配置
+# ------------------------------------------------------------
+# MCP 协议层日志设为 DEBUG，便于排查握手和工具发现过程。
+# 生产环境可降到 INFO。
+# ============================================================
+logging:
+  level:
+    org.springframework.ai.mcp: DEBUG
+    org.example.mcpserver: INFO
