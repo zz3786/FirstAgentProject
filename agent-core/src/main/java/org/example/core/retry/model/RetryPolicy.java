@@ -1,4 +1,4 @@
-package org.example.core.workflow.core.retry.model;
+package org.example.core.retry.model;
 
 /**
  * 退避策略

@@ -120,9 +120,26 @@ public class HitlService {
             throw new HitlException(HitlException.Code.TASK_NOT_FOUND,
                     taskId, "任务不存在: " + taskId);
         }
+
         if (task.getStatus() != HitlStatus.PENDING) {
-            throw new HitlException(HitlException.Code.TASK_ALREADY_DECIDED,
-                    taskId, "任务已决策过，当前状态: " + task.getStatus());
+            HitlStatus existingStatus = task.getStatus();
+
+            // ★ 幂等判断：本次决策类型 == 已有决策类型 → 视为重复请求，返回现有任务
+            boolean sameAsExisting = switch (decision.type()) {
+                case APPROVE -> existingStatus == HitlStatus.APPROVED;
+                case REJECT  -> existingStatus == HitlStatus.REJECTED;
+                case MODIFY  -> existingStatus == HitlStatus.MODIFIED;
+            };
+
+            if (sameAsExisting) {
+                log.info("[HITL] 任务已被相同决策处理，幂等返回: taskId={}, status={}",
+                        taskId, existingStatus);
+                return task;   // 直接返回现有任务——不抛异常
+            }
+
+            // ★ 不同类型的决策 → 才是真冲突
+            throw new HitlException(HitlException.Code.TASK_ALREADY_DECIDED, taskId,
+                    "任务已被处理为「" + existingStatus + "」，无法再改为「" + decision.type() + "」");
         }
 
         // ① 映射决策类型到状态

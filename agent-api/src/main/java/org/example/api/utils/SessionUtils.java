@@ -1,8 +1,9 @@
-package org.example.utils;
+package org.example.api.utils;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
+import org.example.common.exception.UnauthorizedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +23,8 @@ public class SessionUtils {
                 return userId.toString();
             }
         }
-        throw new IllegalStateException("未登录");
+        // ★ 改成业务专属异常
+        throw new UnauthorizedException("未登录");
     }
 
     public static String getConversationId(HttpServletRequest request) {

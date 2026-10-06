@@ -4,6 +4,8 @@ import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.example.cache.service.SemanticCacheService;
 import org.example.common.utils.TextUtils;
+import org.example.core.tools.SafeToolCallback;
+import org.example.core.tools.SafeToolCallbackFactory;
 import org.example.memory.ConversationMemoryService;
 import org.example.rag.retrieval.config.RecommendationProperties;
 import org.example.rag.shared.model.RagFilter;
@@ -107,6 +109,8 @@ public class ChatService {
     /** ★ D52：主动推荐服务 */
     private final RecommendationService recommendationService;
 
+    private final SafeToolCallbackFactory safeToolCallbackFactory;
+
     /**
      * 会话记忆
      * <p>
@@ -183,7 +187,7 @@ public class ChatService {
             ClarificationService clarificationService,
             RetrievalProfileService retrievalProfileService,
             RecommendationProperties recommendationProperties,
-            RecommendationService recommendationService,
+            RecommendationService recommendationService, SafeToolCallbackFactory safeToolCallbackFactory,
             @Qualifier("redisChatMemory") ChatMemory chatMemory,
             CalculatorTools calculatorTools,
             TextAnalysisTools textAnalysisTools,
@@ -204,6 +208,7 @@ public class ChatService {
         this.retrievalProfileService = retrievalProfileService;
         this.recommendationProperties = recommendationProperties;
         this.recommendationService = recommendationService;
+        this.safeToolCallbackFactory = safeToolCallbackFactory;
         this.chatMemory = chatMemory;
         this.calculatorTools = calculatorTools;
         this.textAnalysisTools = textAnalysisTools;
@@ -253,9 +258,7 @@ public class ChatService {
                 .getToolCallbacks();
 
         // ② 逐个包装成 SafeToolCallback（超时 10s、异常转友好文本、入参出参日志）
-        this.wrappedCallbacks = Arrays.stream(rawCallbacks)
-                .map(SafeToolCallback::new)
-                .toArray(ToolCallback[]::new);
+        this.wrappedCallbacks = safeToolCallbackFactory.wrap(rawCallbacks);
 
         log.info("工具回调初始化完成，共 {} 个工具", wrappedCallbacks.length);
     }

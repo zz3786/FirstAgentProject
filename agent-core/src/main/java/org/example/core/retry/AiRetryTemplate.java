@@ -1,9 +1,9 @@
-package org.example.core.workflow.core.retry;
+package org.example.core.retry;
 
 import lombok.extern.slf4j.Slf4j;
-import org.example.core.workflow.core.retry.config.RetryProperties;
-import org.example.core.workflow.core.retry.model.RetryPolicy;
-import org.example.core.workflow.core.retry.model.RetryStats;
+import org.example.core.retry.config.RetryProperties;
+import org.example.core.retry.model.RetryPolicy;
+import org.example.core.retry.model.RetryStats;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ThreadLocalRandom;
@@ -11,7 +11,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
- * 重试模板——编程式重试的核心
+ * 重试模板——编程式重试的核心  这玩意不能改名不然和spring的冲突
  *
  * <h3>执行流程</h3>
  * <pre>
@@ -44,11 +44,11 @@ import java.util.function.Supplier;
  */
 @Slf4j
 @Component
-public class WorkflowRetryTemplate {
+public class AiRetryTemplate {
 
     private final RetryProperties props;
 
-    public WorkflowRetryTemplate(RetryProperties props) {
+    public AiRetryTemplate(RetryProperties props) {
         this.props = props;
     }
 

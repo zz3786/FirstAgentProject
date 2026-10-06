@@ -47,6 +47,11 @@ public class WorkflowNodeRegistry {
         return node;
     }
 
+    /** 列出所有已注册节点名——用于报错提示 */
+    public java.util.Set<String> listNames() {
+        return nodes.keySet();
+    }
+
     public boolean exists(String name) {
         return nodes.containsKey(name);
     }

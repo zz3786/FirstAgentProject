@@ -43,14 +43,30 @@ public abstract class AbstractWorkflowNode implements WorkflowNode {
 
         log.info("[{}] ▶️ 开始执行", name);
 
+        // ★ 记录执行前的 branchTaken
+        String branchBefore = state.getBranchTaken();
+
         try {
             // ② 执行业务逻辑（子类实现）
             String output = doExecute(state);
 
             long cost = System.currentTimeMillis() - start;
 
-            log.info("[{}] ✅ 完成 costMs={}", name, cost);
-            state.addTrace(WorkflowTrace.success(name, cost, TextUtils.truncate(output, 200)));
+            // ★ 记录执行后的 branchTaken
+            String branchAfter = state.getBranchTaken();
+
+            // ★ 只有"本次执行改变了 branch"的节点才记录 branch
+            String branchForTrace = java.util.Objects.equals(branchBefore, branchAfter) ? null : branchAfter;
+
+            log.info("[{}] ✅ 完成 costMs={} branch={}", name, cost, branchForTrace);
+
+            if (branchForTrace != null) {
+                state.addTrace(WorkflowTrace.successWithBranch(
+                        name, branchForTrace, cost, TextUtils.truncate(output, 200)));
+            } else {
+                state.addTrace(WorkflowTrace.success(name, cost, TextUtils.truncate(output, 200)));
+            }
+
             return NodeResult.success(name, output, cost);
 
         } catch (Exception e) {

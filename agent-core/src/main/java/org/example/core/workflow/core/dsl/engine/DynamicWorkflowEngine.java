@@ -140,8 +140,7 @@ public class DynamicWorkflowEngine {
             }
             case "hitl" -> {
                 // 判断是否触发
-                if (node.getWhen() == null
-                        || expressionEvaluator.evaluateBoolean(node.getWhen(), vars)) {
+                if (node.getWhen() == null|| expressionEvaluator.evaluateBoolean(node.getWhen(), vars)) {
                     log.warn("[DSL] HITL 触发: id={}", node.getId());
                     // 实际实现：创建 HITL 任务 + 抛 WorkflowSuspendedException
                     // 简化：打日志

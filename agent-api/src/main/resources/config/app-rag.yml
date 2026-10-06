@@ -1,0 +1,85 @@
+# ============================================================
+# RAG 检索增强配置
+# ------------------------------------------------------------
+# 包含：摄取 / 检索 / OCR / 澄清判定 / 异步索引 / 个性化检索
+# ============================================================
+
+app:
+
+  # ========== RAG 摄取与检索 ==========
+  rag:
+    ingest:
+      # 原文件存储目录（复制一份保存，便于下载）
+      file-storage-dir: D:/DevelopmentTool/qdrant/rag-files/
+      # 监听扫描的目录——新文件放这里
+      listen-files-dir: D:/download/testVectorData
+      # 扫描间隔（毫秒）——3000000 = 50 分钟
+      scan-interval-ms: 3000000
+      # 是否启用增量扫描（只入库变化的文件）
+      incremental-enabled: true
+
+    retrieval:
+      # 最终返回的 TopK
+      top-k: 2
+      # 向量检索相似度阈值（0~1）
+      similarity-threshold: 0.5
+      # RRF 融合常数——越大越平滑
+      rrf-k: 60
+      # 每路召回的放大倍数（recallSize = topK * multiplier）
+      recall-multiplier: 2
+      # 远程重排服务（TEI）
+      rerank:
+        api-url: http://localhost:8081/rerank
+        timeout-seconds: 8
+        # 低于此分数的结果过滤掉
+        min-score: 0.3
+      # 融合策略：weighted（加权）/ rrf（倒数排名融合）
+      fusion-strategy: weighted
+      # 向量权重（weighted 策略用）
+      vector-weight: 0.7
+      # 关键词权重（weighted 策略用）
+      keyword-weight: 0.3
+
+  # ========== OCR 图片文字识别 ==========
+  ocr:
+    enabled: true
+    # tessdata 语言包目录
+    tessdata-path: ./tessdata/
+    # 识别语言：chi_sim=中文简体，eng=英文
+    language: chi_sim+eng
+    # 单张图 OCR 超时（秒）
+    timeout-seconds: 30
+    # 结果少于 N 字视为无有效内容
+    min-text-length: 5
+    # 页面分割模式：3=全自动
+    page-seg-mode: 3
+
+  # ========== 澄清判定（D47） ==========
+  # 检索结果不明确时反问用户
+  clarification:
+    enabled: true
+    # 最高 rerank 分低于此值 → 判定为"模糊"
+    min-top-score: 0.5
+    # 高分文档数少于此值 → 也判定"模糊"
+    min-qualified-docs: 2
+
+  # ========== 异步索引（D55） ==========
+  # 批量入库文件时并发处理
+  async-index:
+    enabled: true
+    # 并发文件数——太小无收益，太大触发 API 限流
+    concurrency: 4
+    # 队列容量——满时调用线程自己执行（背压）
+    queue-capacity: 500
+    # 单文件处理超时（秒）
+    per-file-timeout-seconds: 300
+    # 每文件之间的最小间隔（毫秒）——防 API 429
+    min-interval-ms: 200
+    # 每 N 个文件打一次进度日志
+    progress-log-interval: 10
+
+  # ========== 个性化检索（D51） ==========
+  retrieval:
+    profile:
+      # 启用后按用户历史行为调整检索权重
+      enabled: true

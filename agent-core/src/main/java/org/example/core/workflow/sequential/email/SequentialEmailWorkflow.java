@@ -40,15 +40,22 @@ public class SequentialEmailWorkflow {
                 request.query(), request.recipientEmail());
 
         try {
+
+            //检索
             retrieveStep.execute(ctx);
+
+            //总结
             summarizeStep.execute(ctx);
+
+            //生成邮件
             composeEmailStep.execute(ctx);
+
+            //发送邮件
             sendEmailStep.execute(ctx);
 
             // 有 messageId 才算真正成功；没有的话是降级返回草稿
             boolean success = ctx.getMessageId() != null;
-            log.info("✅ 工作流完成: success={}, messageId={}, 总耗时={}ms",
-                    success, ctx.getMessageId(),
+            log.info("✅ 工作流完成: success={}, messageId={}, 总耗时={}ms", success, ctx.getMessageId(),
                     System.currentTimeMillis() - ctx.getStartTime());
 
             return ctx.toResult(success);

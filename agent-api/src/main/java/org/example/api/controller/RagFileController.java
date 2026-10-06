@@ -1,4 +1,4 @@
-package org.example.controller;
+package org.example.api.controller;
 
 import org.example.rag.ingest.config.IngestProperties;
 import org.springframework.core.io.FileSystemResource;

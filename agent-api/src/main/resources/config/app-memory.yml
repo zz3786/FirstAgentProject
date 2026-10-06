@@ -1,0 +1,71 @@
+# ============================================================
+# 记忆与缓存配置
+# ------------------------------------------------------------
+# 包含：对话记忆 / 语义缓存 / 用户兴趣 / 会话压缩
+# ============================================================
+
+app:
+
+  # ========== 对话历史向量化（D50） ==========
+  # 把每轮对话向量化，支持跨会话语义检索
+  conversation-memory:
+    enabled: true
+    # Redis 向量索引名——与语义缓存完全隔离
+    index-name: conversation-memory-index
+    key-prefix: "conv-mem:"
+    # 检索返回条数
+    top-k: 3
+    # 相似度阈值（比 RAG 高——召回错了会污染 prompt）
+    similarity-threshold: 0.75
+    # assistant 回答入库的最大字符数（防超长回答撑爆）
+    max-assistant-chars: 2000
+    # 用户消息最小长度——太短的（"嗯"、"好"）不入库
+    min-user-message-chars: 5
+    # 检索时排除当前会话——避免和 ChatMemory 重复注入
+    exclude-current-conversation: true
+    # ===== D54：SCAN 查询配置 =====
+    # SCAN 每批返回数量
+    scan-batch-size: 500
+    # SCAN 总超时（秒）
+    scan-timeout-seconds: 5
+    # 单次查询最大返回数
+    max-conversation-ids: 1000
+
+  # ========== 语义缓存 ==========
+  # 相同/相似问题直接返回缓存答案——跳过 LLM
+  cache:
+    semantic:
+      enabled: true
+      index-name: semantic-cache-index
+      key-prefix: "semantic-cache:"
+      # 相似度阈值（0.85——比对话记忆更严，避免答错问题）
+      similarity-threshold: 0.85
+      # 缓存 TTL（小时）
+      ttl-hours: 24
+      # 每用户最多缓存条数（防膨胀）
+      max-cache-per-user: 200
+
+  # ========== 用户兴趣标签（D53） ==========
+  # 记录用户关注的技术领域——下次对话注入 prompt
+  user-interest:
+    enabled: true
+    # 注入 prompt 时最多展示 N 个标签
+    inject-top-n: 5
+    # 每用户最多保留标签数
+    max-tags-per-user: 30
+    # 标签 TTL（天）——长期不用自动衰减
+    ttl-days: 180
+    # 每次提及权重增加量
+    weight-increment: 0.15
+    # 权重上限
+    max-weight: 1.0
+    # 权重下限——低于此值不注入
+    min-weight: 0.2
+
+  # ========== 会话压缩 ==========
+  # ChatMemory 超过阈值时把旧消息压成摘要
+  compaction:
+    # 触发压缩的阈值（默认 100，本项目配 20 便于演示）
+    max-messages-before-compaction: 20
+    # 压缩后保留最近 N 条原始消息
+    keep-recent-messages: 8

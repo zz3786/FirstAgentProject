@@ -4,10 +4,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.core.workflow.core.parallel.config.ParallelProperties;
 import org.example.core.workflow.core.parallel.model.ParallelResult;
 import org.example.core.workflow.core.parallel.model.ParallelTask;
-import org.example.core.workflow.core.retry.RetryExhaustedException;
-import org.example.core.workflow.core.retry.RetryPredicates;
-import org.example.core.workflow.core.retry.WorkflowRetryTemplate;
-import org.example.core.workflow.core.retry.model.RetryPolicy;
+import org.example.core.retry.RetryExhaustedException;
+import org.example.core.retry.RetryPredicates;
+import org.example.core.retry.AiRetryTemplate;
+import org.example.core.retry.model.RetryPolicy;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PreDestroy;
@@ -34,11 +34,11 @@ import java.util.concurrent.*;
 @Component
 public class ParallelExecutor {
 
-    private final WorkflowRetryTemplate workflowRetryTemplate;
+    private final AiRetryTemplate workflowRetryTemplate;
     private final ParallelProperties props;
     private final ExecutorService executor;
 
-    public ParallelExecutor(WorkflowRetryTemplate workflowRetryTemplate, ParallelProperties props) {
+    public ParallelExecutor(AiRetryTemplate workflowRetryTemplate, ParallelProperties props) {
         this.workflowRetryTemplate = workflowRetryTemplate;
         this.props = props;
         this.executor = createExecutor(props);

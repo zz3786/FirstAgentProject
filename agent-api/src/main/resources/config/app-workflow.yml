@@ -1,0 +1,118 @@
+# ============================================================
+# 工作流引擎配置
+# ------------------------------------------------------------
+# 包含：订单工作流 / 并行执行 / 重试 / HITL / DSL
+# ============================================================
+
+app:
+
+  # ========== 订单工作流（D59） ==========
+  order-workflow:
+    enabled: true
+    # 单步超时（毫秒）
+    default-step-timeout-ms: 10000
+    # 整体超时（毫秒）
+    total-timeout-ms: 60000
+    # 幂等锁 TTL（秒）——防重复处理同一订单
+    idempotency-lock-seconds: 300
+    # 未知状态是否转人工——false 则直接失败
+    escalate-unknown-status: true
+    # 干跑模式——true 时只打日志不真执行
+    dry-run: false
+
+    # 单节点超时覆盖——key = 节点名
+    step-timeout-overrides:
+      LoadOrderNode: 5000
+      EscalateToHumanNode: 30000
+
+    # 决策路由表——订单状态 → 目标节点
+    routing-table:
+      PENDING_PAYMENT: PaymentReminderNode
+      SHIPPED: LogisticsTrackingNode
+      SIGNED: SatisfactionSurveyNode
+      REFUNDING: EscalateToHumanNode
+      REFUNDED: EscalateToHumanNode
+      UNKNOWN: EscalateToHumanNode
+
+  # ========== 并行执行（D60） ==========
+  parallel:
+    enabled: true
+    # Java 21 虚拟线程——IO 密集场景推荐
+    use-virtual-threads: true
+    # 平台线程池大小（use-virtual-threads=false 时生效）
+    platform-pool-size: 16
+    platform-queue-capacity: 256
+    # 整体超时（毫秒）
+    default-timeout-ms: 5000
+    # 单任务默认超时（毫秒）
+    default-task-timeout-ms: 3000
+    # 是否记录每个任务的耗时
+    record-task-timing: true
+
+  # ========== 重试（D61） ==========
+  retry:
+    enabled: true
+    # 默认最大尝试次数（含首次）
+    default-max-attempts: 3
+    # 初始退避（毫秒）
+    default-backoff-ms: 200
+    # 退避倍数
+    default-backoff-multiplier: 2.0
+    # 最大退避（毫秒）——防无限增长
+    default-max-backoff-ms: 5000
+    # 是否加随机抖动——防"惊群"
+    default-jitter: true
+
+    # 按数据源覆盖——不同依赖容忍度不同
+    override:
+      order-basic:
+        # 订单库稳定——重试 2 次够了
+        max-attempts: 2
+        backoff-ms: 100
+      logistics:
+        # 物流系统不稳定——多试几次
+        max-attempts: 5
+        backoff-ms: 500
+        max-backoff-ms: 3000
+      user-profile:
+        # 用户中心稳——少重试
+        max-attempts: 2
+        backoff-ms: 100
+
+  # ========== 人工介入（D62） ==========
+  hitl:
+    enabled: true
+    # 任务默认超时（分钟）
+    default-timeout-minutes: 30
+    # 超时扫描间隔（毫秒）
+    scan-interval-ms: 60000
+    # 默认处理人
+    default-assignee: admin
+    # 是否启用自动超时扫描
+    auto-timeout-enabled: true
+    # 超时后的兜底：REJECT（保守）/ AUTO_APPROVE
+    timeout-fallback: REJECT
+    # 任务历史保留时长（小时）
+    task-history-ttl-hours: 72
+
+    # 需要人工审批的分支白名单
+    approval-required-branches:
+      - PaymentReminderNode
+      - EscalateToHumanNode
+    # 需要人工审批的订单状态白名单
+    approval-required-statuses:
+      - REFUNDING
+
+  # ========== DSL 工作流定义（D63） ==========
+  dsl:
+    enabled: true
+    # 热重载——生产默认关闭，开发可开
+    hot-reload-enabled: false
+    # 加载时做静态校验
+    validate-on-load: true
+    # classpath 扫描路径
+    classpath-patterns:
+      - classpath*:workflows/*.yaml
+    # 文件系统扫描目录（可选）
+    scan-dirs:
+      - ./workflows

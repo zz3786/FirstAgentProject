@@ -1,4 +1,4 @@
-package org.example.controller;
+package org.example.api.controller;
 
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -8,8 +8,8 @@ import org.example.common.audit.AuditLogger;
 import org.example.rag.shared.model.RagFilter;
 import org.example.core.chat.service.ChatService;
 import org.example.common.utils.ConversationIdUtils;
-import org.example.utils.SessionUtils;
-import org.example.utils.TenantRequestUtils;
+import org.example.api.utils.SessionUtils;
+import org.example.api.utils.TenantRequestUtils;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;

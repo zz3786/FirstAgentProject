@@ -1,0 +1,71 @@
+# ============================================================
+# Spring 基础设施配置
+# ------------------------------------------------------------
+# 包含：AI 模型 / 数据库 / Redis / Qdrant / MyBatis
+# ============================================================
+
+spring:
+
+  # ========== OpenAI 自动配置裁剪 ==========
+  # 只用 Chat + Embedding——不需要 Audio/Image/Moderation
+  # 不排除会启动失败（缺少必要的 key）
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
+
+  ai:
+    openai:
+      # ========== Chat 模型（DeepSeek）==========
+      chat:
+        base-url: https://api.deepseek.com
+        # API Key 从环境变量读——不要硬编码
+        api-key: ${DEEPSEEK_API_KEY}
+        options:
+          model: deepseek-v4-pro
+
+      # ========== Embedding 模型（阿里云百炼）==========
+      embedding:
+        # 用控制台显示的专属域名（每个账号不同）
+        base-url: https://llm-flmgbipyi282dygn.cn-beijing.maas.aliyuncs.com/compatible-mode
+        api-key: ${DASHSCOPE_API_KEY}
+        options:
+          # text-embedding-v4——阿里云最新版
+          model: text-embedding-v4
+          # 维度必须和后续检索的向量库对齐——改这里要重建索引
+          dimensions: 1024
+
+    # ========== Qdrant 向量库 ==========
+    vectorstore:
+      qdrant:
+        host: localhost
+        port: 6334          # gRPC 端口（HTTP 是 6333）
+        collection-name: agent-rag
+        initialize-schema: true     # 启动时自动创建集合
+        use-tls: false              # 本地开发不用 TLS
+        check-compatibility: false  # 跳过版本检查——避免某些版本误报
+
+  # ========== MySQL 数据源 ==========
+  datasource:
+    url: "jdbc:mysql://${MYSQL_HOST}:3306/rag?useUnicode=true&autoReconnect=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai"
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # ========== Redis ==========
+  data:
+    redis:
+      host: 127.0.0.1
+      database: 0             # 用的 DB 0——生产建议按业务分 DB
+      port: 6379
+      password: hfcx_redis_123456
+
+# ========== MyBatis ==========
+mybatis:
+  # XML mapper 文件位置——支持多模块
+  mapper-locations: classpath*:mapper/**/*.xml
+  # 实体类包路径——typeAlias 用
+  # ⚠️ 重构后如果 rag.entity 改了位置——这里要同步改
+  type-aliases-package: org.example.rag.entity

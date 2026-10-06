@@ -104,8 +104,10 @@ public class OrderConditionalWorkflow {
 
         try {
             // ② 顺序 + 条件混合执行
-            runNode(parallelFetchNode, state);       // 顺序：查询订单
-            runNode(decisionNode, state);        // 顺序：决策
+            // 顺序：查询订单
+            runNode(parallelFetchNode, state);
+            // 顺序：决策
+            runNode(decisionNode, state);
 
             // ★ 新增：在条件分支之前尝试 HITL 审批
             //   如果不需要审批 → shouldEnter 返回 false → 跳过
@@ -119,12 +121,14 @@ public class OrderConditionalWorkflow {
             }
             WorkflowNode branchNode = registry.get(branchName);
             log.info("▶️ 进入条件分支：{}", branchName);
-
             runNode(branchNode, state);
-            runNode(auditLogNode, state);        // 顺序：审计
+
+            // 顺序：审计
+            runNode(auditLogNode, state);
 
             state.setStatus("SUCCESS");
             state.setFinalMessage(buildFinalMessage(state));
+
             return buildResponse(state);
 
         } catch (WorkflowSuspendedException suspended) {

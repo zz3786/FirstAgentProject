@@ -1,5 +1,6 @@
 package org.example.tools;
 
+import org.example.core.tools.SafeToolCallback;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;

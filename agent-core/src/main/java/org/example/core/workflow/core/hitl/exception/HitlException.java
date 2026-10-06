@@ -12,7 +12,7 @@ public class HitlException extends RuntimeException {
         INVALID_DECISION,     // 非法决策
         STORE_ERROR,          // 存储失败
         RESUME_FAILED         // 恢复执行失败
-    }
+        }
 
     private final Code code;
     private final String taskId;

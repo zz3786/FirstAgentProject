@@ -1,4 +1,4 @@
-package org.example.core.workflow.core.retry.config;
+package org.example.core.retry.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

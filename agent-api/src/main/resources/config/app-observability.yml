@@ -1,0 +1,18 @@
+# ============================================================
+# 日志与监控配置
+# ------------------------------------------------------------
+# ⚠️ TRACE 级会输出海量内容——生产环境建议降到 DEBUG 或 WARN
+# ============================================================
+
+logging:
+  level:
+    # HTTP 请求详细日志——排查外部调用时用
+    org.springframework.web.client: TRACE
+    org.springframework.web.client.DefaultRestClient: TRACE
+    org.springframework.http.client: TRACE
+    # Spring AI 调用日志——排查 prompt/response 时用
+    org.springframework.ai.openai: DEBUG
+    # MyBatis SQL 日志——排查 SQL 时用
+    org.mybatis: DEBUG
+    org.mybatis.spring: DEBUG
+    org.apache.ibatis: DEBUG

@@ -1,4 +1,4 @@
-package org.example.utils;
+package org.example.api.utils;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;

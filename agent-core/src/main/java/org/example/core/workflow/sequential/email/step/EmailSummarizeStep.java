@@ -30,10 +30,12 @@ public class EmailSummarizeStep {
         long start = System.currentTimeMillis();
 
         try {
+
             String summary = summarizeWithRetry(ctx.getRetrievedDocs());
+
             ctx.setSummary(summary);
-            ctx.recordTrace("总结", "SUCCESS",
-                    System.currentTimeMillis() - start,
+
+            ctx.recordTrace("总结", "SUCCESS",System.currentTimeMillis() - start,
                     "要点 " + summary.length() + " 字");
             log.info("② 总结完成：{} 字", summary.length());
 

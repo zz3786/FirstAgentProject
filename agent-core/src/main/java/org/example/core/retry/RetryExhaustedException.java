@@ -1,6 +1,6 @@
-package org.example.core.workflow.core.retry;
+package org.example.core.retry;
 
-import org.example.core.workflow.core.retry.model.RetryStats;
+import org.example.core.retry.model.RetryStats;
 
 /**
  * 重试耗尽异常

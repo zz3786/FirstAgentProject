@@ -1,15 +1,14 @@
 package org.example.core.plan.config;
 
+import org.example.core.tools.SafeToolCallbackFactory;
 import org.example.tools.*;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.util.Arrays;
 
 /**
  * Plan-and-Execute 三个 ChatClient 装配
@@ -63,7 +62,8 @@ public class PlanChatClientConfig {
             TextAnalysisTools textAnalysisTools,
             OrderTools orderTools,
             TodoTools todoTools,
-            EntertainmentTools entertainmentTools) {
+            EntertainmentTools entertainmentTools,
+            SafeToolCallbackFactory safeToolCallbackFactory) {   // ★ 新增参数
 
         ToolCallback[] raw = MethodToolCallbackProvider.builder()
                 .toolObjects(calculatorTools, textAnalysisTools,
@@ -71,6 +71,7 @@ public class PlanChatClientConfig {
                 .build()
                 .getToolCallbacks();
 
-        return Arrays.stream(raw).map(SafeToolCallback::new).toArray(ToolCallback[]::new);
+        // ★ 只调工厂——不再手动 map SafeToolCallback
+        return safeToolCallbackFactory.wrap(raw);
     }
 }

@@ -1,0 +1,36 @@
+# ============================================================
+# Plan-and-Execute 配置（D57.5）
+# ------------------------------------------------------------
+# 用 LLM 生成计划 + 执行 + 失败重规划
+# ============================================================
+
+app:
+  plan:
+    enabled: true
+    # 计划最大步骤数——防模型拆出 20 步
+    max-steps: 8
+    # 单步描述最大长度
+    max-description-length: 200
+    # 整体超时（毫秒）
+    total-timeout-ms: 120000
+    # 单步超时（毫秒）
+    per-step-timeout-ms: 30000
+    # 单步重试次数（不含首次）
+    per-step-retry: 2
+    # 最大重规划次数——防无限循环
+    max-replans: 2
+    # 是否持久化执行状态到 Redis（支持中断恢复）
+    persist-state: true
+    # 状态 TTL（小时）
+    state-ttl-hours: 24
+
+    # 工具白名单——只有列在这的工具才能被 Plan 使用
+    # 空列表 = 不启用白名单（不推荐）
+    allowed-tools:
+      - calculate
+      - analyzeText
+      - getOrderStatus
+      - createTodo
+      - listTodos
+      - getJoke
+      - getQuote

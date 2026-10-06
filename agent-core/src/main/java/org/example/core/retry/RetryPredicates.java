@@ -1,4 +1,4 @@
-package org.example.core.workflow.core.retry;
+package org.example.core.retry;
 
 import java.util.Set;
 import java.util.function.Predicate;
