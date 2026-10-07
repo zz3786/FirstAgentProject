@@ -6,37 +6,47 @@ import org.example.core.plan.config.PlanProperties;
 import org.example.core.plan.exception.PlanException;
 import org.example.core.plan.model.Plan;
 import org.example.core.plan.model.PlanRequest;
+import org.example.toolregistry.ToolRegistry;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.util.HashSet;
+import java.util.Set;
+
 /**
- * 规划器——让 LLM 输出结构化计划
+ * 规划器——让 LLM 输出结构化计划（D68 动态工具版）
+ *
+ * <h3>D68 改动</h3>
  * <p>
- * 关键设计：
- * <ul>
- *   <li>用 BeanOutputConverter 生成 JSON Schema，保证输出结构稳定</li>
- *   <li>工具清单从实际注册的 ToolCallback 提取——不手写，避免不一致</li>
- *   <li>prompt 里硬约束步数上限、工具白名单</li>
- * </ul>
+ * 原实现注入 {@code @Qualifier("planToolCallbacks") ToolCallback[]}——
+ * 是启动时的快照。改为注入 {@link ToolRegistry}——
+ * 每次生成 Plan 时动态取最新工具集。
+ *
+ * <p><b>只改了字段、构造函数、buildToolCatalog 三处</b>——
+ * {@code plan()}、{@code buildPlannerPrompt()}、{@code extractParams()}
+ * 均保持原样。
  */
 @Slf4j
 @Service
 public class PlannerService {
 
     private final ChatClient plannerClient;
-    private final ToolCallback[] toolCallbacks;
+
+    /** ★ D68：改为 ToolRegistry 动态取 */
+    private final ToolRegistry toolRegistry;
+
     private final PlanProperties props;
     private final BeanOutputConverter<Plan> converter;
 
     public PlannerService(
             @Qualifier("plannerClient") ChatClient plannerClient,
-            @Qualifier("planToolCallbacks") ToolCallback[] toolCallbacks,
+            ToolRegistry toolRegistry,                 // ★ 替代 ToolCallback[]
             PlanProperties props) {
         this.plannerClient = plannerClient;
-        this.toolCallbacks = toolCallbacks;
+        this.toolRegistry = toolRegistry;
         this.props = props;
         this.converter = new BeanOutputConverter<>(Plan.class);
     }
@@ -80,7 +90,12 @@ public class PlannerService {
         }
     }
 
-    /** 构造规划 Prompt */
+    /**
+     * 构造规划 Prompt
+     * <p>
+     * ★ D68 未改动此方法——它调用 {@link #buildToolCatalog()}，
+     * 而后者已改为动态取工具，所以本方法自动受益。
+     */
     private String buildPlannerPrompt(PlanRequest request) {
         String toolCatalog = buildToolCatalog();
         String format = converter.getFormat();
@@ -213,12 +228,36 @@ public class PlannerService {
     }
 
     /**
-     * 构造工具目录——比原来的 name + description 更丰富
+     * 构造工具目录（D68：动态从 ToolRegistry 取）
+     *
+     * <h3>工具范围</h3>
+     * <p>
+     * 只取"白名单内的工具"：
+     * <ul>
+     *   <li>白名单为空 → 全部已注册工具</li>
+     *   <li>白名单非空 → 白名单 ∩ ToolRegistry</li>
+     * </ul>
+     *
+     * <p>这样 LLM <b>从源头看不到</b>不该由 Plan 调用的工具——
+     * 避免它"编造"一个不在白名单里的工具步骤。
+     *
+     * <h3>为什么每次调用都取</h3>
+     * <p>
+     * D68 支持运行时刷新工具清单。如果缓存到字段里，
+     * MCP Server 上下线工具后 LLM 看不到变化。
+     * 每次动态取保证"生成 Plan 时的工具集 = 当前真实可用的工具集"。
      */
     private String buildToolCatalog() {
+        // ★ 白名单过滤
+        Set<String> allowed = props.getAllowedTools().isEmpty()
+                ? toolRegistry.listNames()
+                : new HashSet<>(props.getAllowedTools());
+
+        ToolCallback[] callbacks = toolRegistry.getCallbacks(allowed);
+
         StringBuilder sb = new StringBuilder();
         int idx = 1;
-        for (ToolCallback tc : toolCallbacks) {
+        for (ToolCallback tc : callbacks) {
             var def = tc.getToolDefinition();
             sb.append(idx++).append(". **").append(def.name()).append("**\n");
             sb.append("   描述：").append(def.description()).append("\n");

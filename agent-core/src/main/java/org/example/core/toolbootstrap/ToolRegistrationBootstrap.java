@@ -1,6 +1,8 @@
 package org.example.core.toolbootstrap;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.common.utils.TextUtils;
+import org.example.core.plan.config.PlanProperties;
 import org.example.rag.retrieval.tools.RetrievalPreferenceTools;
 import org.example.toolregistry.ToolRegistry;
 import org.example.toolregistry.model.ToolDescriptor;
@@ -16,49 +18,44 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 /**
- * 工具注册启动器（D67）
+ * 工具注册启动器（D67 建 + D68 拆分）
  *
- * <h3>职责</h3>
+ * <h3>D68 的结构调整</h3>
  * <p>
- * 应用启动完成后，把两类工具注册到 {@link ToolRegistry}：
+ * 把"启动时执行一次"和"可被复用的注册逻辑"拆开：
+ * <ul>
+ *   <li>{@link #bootstrap()} —— 启动入口，{@code @EventListener(ApplicationReadyEvent)}
+ *       触发，执行一次</li>
+ *   <li>{@link #registerAllTools()} —— 纯粹的"扫描 + 注册"逻辑，
+ *       被 {@link ToolRefreshService} 在运行时反复调用</li>
+ * </ul>
+ *
+ * <h3>为什么不注入 ToolRefreshListener</h3>
+ * <p>
+ * D68 的通知机制只在<b>运行时刷新路径</b>使用：
+ * <pre>
+ *   ToolRefreshService.refresh()
+ *     → notifyListeners()
+ *     → ChatService.onToolsRefreshed()
+ * </pre>
+ *
+ * <p>启动路径的通知不需要 listener——因为 {@code ChatService} 用
+ * {@code @EventListener(ApplicationReadyEvent.class)} + {@code @Order(100)}
+ * 保证自己在本类（{@code @Order(50)}）之后执行。
+ *
+ * <p>这样做避免了两个问题：
  * <ol>
- *   <li><b>本地工具</b>——扫描 {@code @Tool} 注解生成 ToolCallback</li>
- *   <li><b>MCP 工具</b>——从 MCP Client 拉取远端工具</li>
+ *   <li>本类不需要感知 listener 的存在——降低耦合</li>
+ *   <li>避免 {@code Bootstrap → List<Listener> → ChatService → ToolRegistry}
+ *       的间接依赖链，规避循环依赖风险</li>
  * </ol>
  *
- * <h3>为什么放在 agent-core 而不是独立模块</h3>
- * <p>
- * 本类需要 {@code new} 出所有具体工具类（{@code CalculatorTools} /
- * {@code OrderTools} / {@code LongMemoryTools} 等），这些类分散在
- * {@code agent-tools} / {@code agent-memory} / {@code agent-rag} 里。
- * 它是"启动时的业务编排"——决定哪些工具要暴露给 Agent，属于
- * {@code agent-core} 的职责范畴。
- *
- * <p>把它独立成模块会导致：多一份 pom、多一次 install、
- * 只有一个消费者却要维护模块边界。等未来真有第二个模块要复用时，
- * Move Class 三秒即可抽出。
- *
- * <h3>为什么用 ApplicationReadyEvent 而不是 @PostConstruct</h3>
- * <p>
- * {@code @PostConstruct} 触发时机太早——MCP Client 可能还没完成
- * initialize 握手，拿到的工具清单可能是空的。
- * {@code ApplicationReadyEvent} 在 Spring 上下文完全就绪后触发，
- * MCP Client 的连接、initialize、tools/list 都已经完成。
- *
- * <h3>执行顺序</h3>
- * <p>
- * 用 {@code @Order(50)} 保证本类早于 {@code ChatService.initToolCallbacks()}
- * （后者 {@code @Order(100)}）执行。执行顺序错了，
- * ChatService 取工具时会拿到空注册表。
- *
  * <h3>异常策略</h3>
- * <p>
- * <b>不抛异常</b>——所有工具都注册失败的极端场景下，Agent 会"无工具可用"，
- * 但对话主链路依然可用。这与"降级可用"的生产理念一致。
  * <p>
  * 单个工具注册失败（如一致性校验不通过）只记日志、跳过该工具，
  * 不阻断其他工具注册，也不阻断应用启动。
@@ -67,11 +64,14 @@ import java.util.Set;
 @Component
 public class ToolRegistrationBootstrap {
 
-    /** 本地 MCP Client 提供的远端工具 Provider——可能不存在，用 ObjectProvider 包一层 */
+    /** MCP Client 提供的远端工具 Provider——可能不存在 */
     private final ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider;
 
     /** 工具注册中心 */
     private final ToolRegistry toolRegistry;
+
+    /** Plan 配置——用于白名单一致性检查 */
+    private final PlanProperties planProperties;
 
     // ==================== 本地工具对象（构造注入）====================
 
@@ -89,6 +89,7 @@ public class ToolRegistrationBootstrap {
     public ToolRegistrationBootstrap(
             ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider,
             ToolRegistry toolRegistry,
+            PlanProperties planProperties,
             CalculatorTools calculatorTools,
             TextAnalysisTools textAnalysisTools,
             OrderTools orderTools,
@@ -101,6 +102,7 @@ public class ToolRegistrationBootstrap {
             InterestTools interestTools) {
         this.mcpToolCallbackProvider = mcpToolCallbackProvider;
         this.toolRegistry = toolRegistry;
+        this.planProperties = planProperties;
         this.calculatorTools = calculatorTools;
         this.textAnalysisTools = textAnalysisTools;
         this.orderTools = orderTools;
@@ -116,10 +118,12 @@ public class ToolRegistrationBootstrap {
     // ==================== 启动入口 ====================
 
     /**
-     * 启动完成后扫描并注册所有工具。
-     *
-     * <p>{@code @Order(50)} 保证早于 {@code ChatService.initToolCallbacks()}
-     * （后者 {@code @Order(100)}）。
+     * 启动时入口——只负责时序判断和一次日志。
+     * <p>
+     * 具体注册逻辑委托给 {@link #registerAllTools()}。
+     * <p>
+     * {@code @Order(50)} 保证早于 {@code ChatService.onApplicationReady()}
+     * （后者 {@code @Order(100)}）执行。
      */
     @EventListener(ApplicationReadyEvent.class)
     @Order(50)
@@ -127,8 +131,32 @@ public class ToolRegistrationBootstrap {
         long start = System.currentTimeMillis();
         log.info("========== [D67] 工具注册启动 ==========");
 
+        // ① 扫描 + 注册
+        registerAllTools();
+
+        // ② 汇总打印
+        printSummary(System.currentTimeMillis() - start);
+
+        // ③ 白名单一致性检查
+        checkWhitelistConsistency();
+
+        // ★ 不做 notifyListeners——启动路径的通知由 ChatService
+        //   通过 @EventListener(ApplicationReadyEvent) + @Order(100) 自己完成
+    }
+
+    /**
+     * 纯粹的注册逻辑——可被启动流程和刷新流程复用。
+     *
+     * <p>调用方需要保证：调用时 {@link ToolRegistry} 处于可写状态
+     * （即：不在刷新中途）。{@code ToolRefreshService} 用单飞锁保证。
+     *
+     * <p><b>幂等性</b>：本方法会<b>覆盖</b>同名工具——
+     * 因此可以直接调用，不需要先 clear。
+     * {@code ToolRefreshService} 会先 clear 再调本方法，以保证"下线工具"也能被清掉。
+     */
+    public void registerAllTools() {
         try {
-            // ① 扫描本地 @Tool 注解
+            // ① 扫描本地 @Tool
             List<ToolDescriptor> localDescriptors = scanLocalTools();
             toolRegistry.registerAll(localDescriptors);
 
@@ -136,20 +164,13 @@ public class ToolRegistrationBootstrap {
             List<ToolDescriptor> mcpDescriptors = fetchMcpTools();
             toolRegistry.registerAll(mcpDescriptors);
 
-            // ③ 汇总打印
-            printSummary(System.currentTimeMillis() - start);
-
         } catch (Exception e) {
-            // 兜底——任何未预期的异常都不应阻断应用启动
-            log.error("[D67] 工具注册过程发生未预期异常，部分工具可能不可用", e);
+            log.error("[D67/D68] 工具注册过程发生异常", e);
         }
     }
 
-    // ==================== ① 扫描本地 @Tool ====================
+    // ==================== 本地扫描 ====================
 
-    /**
-     * 扫描本地 {@code @Tool} 注解，包装成 {@link ToolDescriptor}。
-     */
     private List<ToolDescriptor> scanLocalTools() {
         ToolCallback[] callbacks = MethodToolCallbackProvider.builder()
                 .toolObjects(
@@ -172,7 +193,6 @@ public class ToolRegistrationBootstrap {
             try {
                 descriptors.add(toLocalDescriptor(cb));
             } catch (Exception e) {
-                // 单个工具构造失败不影响其他——D67 的一致性校验可能误伤
                 log.warn("[D67] 本地工具 {} 注册失败，跳过: {}",
                         cb.getToolDefinition().name(), e.getMessage());
             }
@@ -182,13 +202,6 @@ public class ToolRegistrationBootstrap {
         return descriptors;
     }
 
-    /**
-     * 把本地 ToolCallback 转成 ToolDescriptor。
-     * <p>
-     * 分类 / 语义标注靠"名字 → 属性"规则推断——生产环境可从
-     * 自定义注解（如 {@code @ToolMeta(category="order", readOnly=true)}）
-     * 或配置表读取。D67 先用最小可行版本。
-     */
     private ToolDescriptor toLocalDescriptor(ToolCallback cb) {
         var def = cb.getToolDefinition();
         String name = def.name();
@@ -197,26 +210,21 @@ public class ToolRegistrationBootstrap {
                 name,
                 def.description(),
                 ToolSource.LOCAL,
-                "local",                      // 本地工具的 sourceId 固定
+                "local",
                 inferCategory(name),
                 inferReadOnly(name),
                 inferDestructive(name),
-                true,                         // 本地工具默认幂等——纯函数
-                false,                        // 不访问外部系统
-                Set.of(),                     // D67 不做权限，D69 再填
+                true,                // 本地工具默认幂等
+                false,               // 不访问外部系统
+                Set.of(),            // D69 会填权限
                 cb,
                 System.currentTimeMillis(),
                 "bootstrap"
         );
     }
 
-    // ==================== ② 拉取 MCP 远端工具 ====================
+    // ==================== MCP 拉取 ====================
 
-    /**
-     * 从 MCP Client 拉取远端工具。
-     * <p>
-     * 任一环节失败返回空列表——MCP Server 不可用不应阻断启动。
-     */
     private List<ToolDescriptor> fetchMcpTools() {
         try {
             ToolCallbackProvider provider = mcpToolCallbackProvider.getIfAvailable();
@@ -236,7 +244,6 @@ public class ToolRegistrationBootstrap {
                 try {
                     descriptors.add(toMcpDescriptor(cb));
                 } catch (Exception e) {
-                    // 一致性校验失败的工具跳过——记录 WARN 但不阻断
                     log.warn("[D67] MCP 工具 {} 注册失败，跳过: {}",
                             cb.getToolDefinition().name(), e.getMessage());
                 }
@@ -255,19 +262,19 @@ public class ToolRegistrationBootstrap {
         var def = cb.getToolDefinition();
         String name = def.name();
 
-        // ★ D66 遗留 bug 的检测点：名字与 schema 的一致性校验
+        // 一致性校验——名字与 schema 必须语义匹配
         validateMcpConsistency(name, def.inputSchema());
 
         return new ToolDescriptor(
                 name,
                 def.description(),
                 ToolSource.MCP,
-                "agent-mcp-server",           // 从 MCP Client 配置可拿到，D67 先写死
+                "agent-mcp-server",
                 inferCategory(name),
                 inferReadOnly(name),
                 inferDestructive(name),
-                true,                         // 幂等假设——具体看工具实现
-                true,                         // MCP 工具访问外部系统
+                true,
+                true,                // MCP 工具访问外部系统
                 Set.of(),
                 cb,
                 System.currentTimeMillis(),
@@ -276,64 +283,34 @@ public class ToolRegistrationBootstrap {
     }
 
     /**
-     * 工具签名一致性校验（D67 新增）
-     *
-     * <h3>背景</h3>
+     * 工具签名一致性校验
      * <p>
-     * D66 遇到过一个具体 bug：MCP Server 暴露的 {@code mcp_calculate}
-     * 描述是"数学运算"，但参数只有 {@code orderId}——描述和 schema
-     * 完全对不上。模型看到这个工具会无所适从，调用时也会传错参数。
-     *
-     * <h3>D67 的策略</h3>
-     * <p>
-     * 按命名约定做最小可行的校验：名字里含关键词的工具，
-     * schema 必须包含对应参数。不通过则抛异常，由调用方捕获后跳过。
-     *
-     * <h3>为什么抛异常而不是返回 boolean</h3>
-     * <p>
-     * 抛异常让调用方必须显式处理——不会因为"忘了检查返回值"而
-     * 让不合规的工具被静默注册。
-     *
-     * @throws IllegalStateException schema 与工具名语义不符时抛出
+     * 按命名约定检测"名字与 schema 语义不符"——D66 遇到过
+     * {@code mcp_calculate} 描述是数学运算但参数是 {@code orderId} 的 bug。
      */
     private void validateMcpConsistency(String name, String inputSchema) {
         if (inputSchema == null || inputSchema.isBlank()) {
             return;
         }
-
-        // 规则 1：名字含 "calculate" → 参数必须有 a / b / operation
         if (name.contains("calculate")) {
             boolean hasAll = inputSchema.contains("\"a\"")
                     && inputSchema.contains("\"b\"")
                     && inputSchema.contains("\"operation\"");
             if (!hasAll) {
                 throw new IllegalStateException(
-                        "工具 [" + name + "] 名字含 'calculate' 但 schema 缺少 a/b/operation。" +
-                                "请检查 agent-mcp-server 端的 @McpTool 注解是否与方法签名匹配。" +
-                                " schema=" + inputSchema);
+                        "工具 [" + name + "] 名字含 'calculate' 但 schema 缺少 a/b/operation。");
             }
         }
-
-        // 规则 2：名字含 "OrderStatus" → 参数必须有 orderId
         if (name.contains("OrderStatus")) {
             if (!inputSchema.contains("orderId")) {
                 throw new IllegalStateException(
-                        "工具 [" + name + "] 名字含 'OrderStatus' 但 schema 缺少 orderId。" +
-                                " schema=" + inputSchema);
+                        "工具 [" + name + "] 名字含 'OrderStatus' 但 schema 缺少 orderId。");
             }
         }
-
-        // 未来可扩展更多规则——或改为从配置表加载
     }
 
     // ==================== 分类与语义推断 ====================
 
-    /**
-     * 从工具名推断业务分类。
-     * <p>
-     * 生产级做法：定义一个 {@code @ToolMeta} 注解，在工具类上声明分类，
-     * 通过反射读取。这里先用名字匹配——简单、无侵入、覆盖当前场景。
-     */
     private String inferCategory(String name) {
         if (name == null) return "other";
         String n = name.toLowerCase();
@@ -350,11 +327,6 @@ public class ToolRegistrationBootstrap {
         return "other";
     }
 
-    /**
-     * 推断是否只读。
-     * <p>
-     * "只读"= 调用不修改任何状态。查询 / 计算 / 分析类属于只读。
-     */
     private boolean inferReadOnly(String name) {
         if (name == null) return false;
         String n = name.toLowerCase();
@@ -363,11 +335,6 @@ public class ToolRegistrationBootstrap {
                 || n.contains("search") || n.contains("query");
     }
 
-    /**
-     * 推断是否有破坏性。
-     * <p>
-     * "破坏性"= 调用可能导致数据不可逆变化。删除 / 清空类属于破坏性。
-     */
     private boolean inferDestructive(String name) {
         if (name == null) return false;
         String n = name.toLowerCase();
@@ -375,14 +342,8 @@ public class ToolRegistrationBootstrap {
                 || n.contains("remove") || n.contains("drop");
     }
 
-    // ==================== 汇总打印 ====================
+    // ==================== 汇总与一致性检查 ====================
 
-    /**
-     * 按来源分组打印注册结果。
-     * <p>
-     * 分组打印的目的：让启动日志一眼能看出"本地几个、MCP 几个"，
-     * 出问题时快速定位是本地工具没注册上还是 MCP 连接失败。
-     */
     private void printSummary(long costMs) {
         var all = toolRegistry.listAll();
         long localCount = toolRegistry.listBySource(ToolSource.LOCAL).size();
@@ -394,16 +355,40 @@ public class ToolRegistrationBootstrap {
         log.info("[D67] ---- 本地工具 ({}) ----", localCount);
         toolRegistry.listBySource(ToolSource.LOCAL).forEach(d ->
                 log.info("[D67]   [{}] {} - {}",
-                        d.category(), d.name(), truncate(d.description(), 50)));
+                        d.category(), d.name(), TextUtils.truncate(d.description(), 50)));
 
         log.info("[D67] ---- MCP 远端工具 ({}) ----", mcpCount);
         toolRegistry.listBySource(ToolSource.MCP).forEach(d ->
                 log.info("[D67]   [{}] {} - {}",
-                        d.category(), d.name(), truncate(d.description(), 50)));
+                        d.category(), d.name(), TextUtils.truncate(d.description(), 50)));
     }
 
-    private String truncate(String s, int max) {
-        if (s == null || s.isBlank()) return "";
-        return s.length() <= max ? s : s.substring(0, max) + "...";
+    /**
+     * 白名单一致性检查
+     * <p>
+     * 检查 yml 白名单里的工具是否都能在 ToolRegistry 里找到。
+     * 缺失的工具在启动时 WARN，让运维提前发现配置错误。
+     */
+    private void checkWhitelistConsistency() {
+        var allowed = planProperties.getAllowedTools();
+        if (allowed == null || allowed.isEmpty()) {
+            return;
+        }
+
+        Set<String> available = toolRegistry.listNames();
+        Set<String> missing = new HashSet<>(allowed);
+        missing.removeAll(available);
+
+        if (!missing.isEmpty()) {
+            log.warn("""
+                    [D67] ⚠ 白名单一致性检查失败：
+                      yml 白名单里有 {} 个工具在 ToolRegistry 里不存在
+                      缺失的工具: {}
+                      当前可用工具: {}
+                    """, missing.size(), missing, available);
+        } else {
+            log.info("[D67] ✅ 白名单一致性检查通过：{} 个工具全部可用", allowed.size());
+        }
     }
+
 }

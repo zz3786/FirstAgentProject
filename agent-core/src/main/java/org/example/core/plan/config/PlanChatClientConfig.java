@@ -1,29 +1,44 @@
 package org.example.core.plan.config;
 
-import org.example.core.tools.SafeToolCallbackFactory;
-import org.example.tools.*;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-
 /**
- * Plan-and-Execute 三个 ChatClient 装配
+ * Plan-and-Execute 三个 ChatClient 装配（D68 精简版）
+ *
+ * <h3>职责</h3>
  * <p>
- * 三者职责分离：
+ * 本类<b>只负责装配三个 ChatClient</b>，不做任何工具装配或工具清单构造。
+ *
+ * <h3>三个 Client 的定位</h3>
  * <ul>
- *   <li>plannerClient——只生成计划，不带工具、不带记忆</li>
- *   <li>executorClient——执行单个步骤，带工具、不带记忆（状态我们自己管）</li>
- *   <li>synthesizerClient——只做汇总，无工具</li>
+ *   <li>{@code plannerClient}——生成计划，不带工具、不带记忆</li>
+ *   <li>{@code planExecutorClient}——执行单个步骤，工具<b>由调用方</b>
+ *       （{@link org.example.core.plan.executor.StepExecutor}）动态传入</li>
+ *   <li>{@code planSynthesizerClient}——结果汇总，无工具</li>
  * </ul>
+ *
+ * <h3>D68 的改动</h3>
+ * <p>
+ * 本类原有一个 {@code planToolCallbacks} Bean——它手写了 5 个工具类，
+ * 与 yml 白名单、{@code ToolRegistry} 三方独立维护，极易不一致。
+ *
+ * <p>D68 已把"取工具"的职责下移到两个消费者：
+ * <ul>
+ *   <li>{@link org.example.core.plan.planner.PlannerService}——
+ *       生成 Plan 时从 {@code ToolRegistry} 动态取</li>
+ *   <li>{@link org.example.core.plan.executor.StepExecutor}——
+ *       执行单步时从 {@code ToolRegistry} 动态取</li>
+ * </ul>
+ *
+ * <p>因此本类的 {@code planToolCallbacks} Bean 已删除。
  */
 @Configuration
 public class PlanChatClientConfig {
 
-    /** 规划器——只做规划，不带任何 Advisor */
+    /** 规划器——只做规划，不带任何 Advisor、不带工具 */
     @Bean("plannerClient")
     public ChatClient plannerClient(OpenAiChatModel chatModel) {
         return ChatClient.builder(chatModel)
@@ -31,7 +46,7 @@ public class PlanChatClientConfig {
                 .build();
     }
 
-    /** 执行器——每步独立调用，带工具 */
+    /** 执行器——每步独立调用，工具由 StepExecutor 动态传入 */
     @Bean("planExecutorClient")
     public ChatClient planExecutorClient(OpenAiChatModel chatModel) {
         return ChatClient.builder(chatModel)
@@ -45,33 +60,5 @@ public class PlanChatClientConfig {
         return ChatClient.builder(chatModel)
                 .defaultSystem("你是一个简洁清晰的汇总助手。")
                 .build();
-    }
-
-    /**
-     * Plan 专用工具回调——独立于 ChatService 里那套
-     * <p>
-     * 独立一套的好处：
-     * <ul>
-     *   <li>不与 ReAct 路径互相污染</li>
-     *   <li>可以只注册 Plan 场景需要的工具（更少的工具 = 更稳的规划）</li>
-     * </ul>
-     */
-    @Bean("planToolCallbacks")
-    public ToolCallback[] planToolCallbacks(
-            CalculatorTools calculatorTools,
-            TextAnalysisTools textAnalysisTools,
-            OrderTools orderTools,
-            TodoTools todoTools,
-            EntertainmentTools entertainmentTools,
-            SafeToolCallbackFactory safeToolCallbackFactory) {   // ★ 新增参数
-
-        ToolCallback[] raw = MethodToolCallbackProvider.builder()
-                .toolObjects(calculatorTools, textAnalysisTools,
-                        orderTools, todoTools, entertainmentTools)
-                .build()
-                .getToolCallbacks();
-
-        // ★ 只调工厂——不再手动 map SafeToolCallback
-        return safeToolCallbackFactory.wrap(raw);
     }
 }

@@ -1,6 +1,8 @@
 package org.example.core.chat.service;
 
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.example.toolregistry.ToolRefreshListener;
 import org.springframework.context.event.EventListener;   // ✅ 这是注解
 import org.example.cache.service.SemanticCacheService;
 import org.example.common.utils.TextUtils;
@@ -60,7 +62,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-public class ChatService {
+public class ChatService implements ToolRefreshListener {
 
     // ==================== 注入的 Client 与 Service ====================
 
@@ -196,77 +198,69 @@ public class ChatService {
 
     // ==================== 初始化 ====================
 
+    // ==================== 工具回调生命周期（D68 三入口）====================
+
     /**
-     * 工具回调初始化（D67 升级版）
-     *
-     * <h3>D66 → D67 的变化</h3>
-     * <pre>
-     * D66：ChatService 里
-     *      1. 手动扫本地 @Tool
-     *      2. 手动拉 MCP 工具
-     *      3. 数组合并
-     *      4. 包装 SafeToolCallback
-     *
-     * D67：ChatService 里
-     *      1. 从 ToolRegistry 取全部回调 ← 上面 1~3 步已由 Bootstrap 完成
-     *      2. 包装 SafeToolCallback
-     * </pre>
-     *
-     * <h3>时序保证</h3>
+     * 保底初始化——Bean 创建后立即调用一次。
      * <p>
-     * {@code ToolRegistrationBootstrap} 用 {@code @EventListener(ApplicationReadyEvent)}
-     * 触发，而本方法用 {@code @PostConstruct}——后者的执行时机更早！
-     * 这会导致一个问题：{@code initToolCallbacks()} 执行时 registry 里还是空的。
-     *
-     * <p>解决：改成 {@code ApplicationRunner} 或者依赖 Spring 的
-     * "Bean 依赖保证"——让 ChatService 依赖 ToolRegistry Bean，
-     * Bootstrap 通过 {@code @DependsOn} 保证顺序。
+     * 此时 {@code ToolRegistry} 还是空的（因为 D67 的 Bootstrap
+     * 在 {@code ApplicationReadyEvent} 阶段才注册工具）——
+     * 所以这里建出的 {@code wrappedCallbacks} 是空数组。
      * <p>
-     * 但更简单的方式是：让本方法也监听 {@code ApplicationReadyEvent}，
-     * 通过 {@code @Order} 保证在 Bootstrap 之后执行。
+     * 保留它的价值：如果某些场景下 {@code ApplicationReadyEvent}
+     * 没触发（比如某些单元测试直接注入 ChatService），
+     * 至少 {@code wrappedCallbacks} 不是 null，不会 NPE。
+     */
+    @PostConstruct
+    public void initToolCallbacks() {
+        log.debug("[D68] ChatService @PostConstruct 保底初始化");
+        rebuildWrappedCallbacks();
+    }
+
+    /**
+     * 启动后重建——在 Bootstrap 注册工具完成之后执行。
+     * <p>
+     * {@code @Order(100)} 保证晚于 {@code ToolRegistrationBootstrap.bootstrap()}（{@code @Order(50)}）。
+     * 此时 {@code ToolRegistry} 已经填好数据，这里能拿到真实的工具集。
      */
     @EventListener(ApplicationReadyEvent.class)
-    @Order(100)   // 保证在 ToolRegistrationBootstrap（默认顺序）之后
-    public void initToolCallbacks() {
+    @Order(100)
+    public void onApplicationReady() {
+        log.info("[D68] ChatService 启动后重建 wrappedCallbacks");
+        rebuildWrappedCallbacks();
+    }
 
+    /**
+     * 运行时刷新回调——由 {@code ToolRefreshService} 在 refresh 后通知。
+     * <p>
+     * 当运维手动触发刷新、或定时任务触发刷新时，本方法被调用，
+     * 从最新的 {@code ToolRegistry} 重建 {@code wrappedCallbacks}。
+     */
+    @Override
+    public void onToolsRefreshed() {
+        log.info("[D68] ChatService 收到工具刷新通知，重建 wrappedCallbacks");
+        rebuildWrappedCallbacks();
+    }
+
+    /**
+     * 从 {@code ToolRegistry} 重建 wrappedCallbacks。
+     * <p>
+     * 三个入口（@PostConstruct / @EventListener / onToolsRefreshed）
+     * 都调这个方法——逻辑只有一份。
+     * <p>
+     * {@code synchronized} 保证重建过程的原子性——
+     * 防止并发刷新导致 wrappedCallbacks 出现半更新状态。
+     */
+    private synchronized void rebuildWrappedCallbacks() {
         ToolCallback[] all = toolRegistry.getCallbacks();
 
         if (all.length == 0) {
-            log.warn("[D67] ToolRegistry 为空——Agent 将无工具可用");
+            log.warn("[D68] ToolRegistry 为空——Agent 当前无工具可用");
         }
 
         this.wrappedCallbacks = safeToolCallbackFactory.wrap(all);
 
-        log.info("[D67] 工具回调初始化完成，共 {} 个（来源：ToolRegistry）", wrappedCallbacks.length);
-    }
-
-    /**
-     * 从 MCP Client 拉取远端工具回调（D66）
-     *
-     * <p>降级策略：任何一个环节失败都返回空数组，不抛异常。
-     * 原因是 MCP Server 是"可选依赖"——它不可用时 Agent 应该
-     * 依然能基于本地工具正常工作，而不是启动失败。
-     */
-    private ToolCallback[] fetchMcpToolCallbacks() {
-        try {
-            ToolCallbackProvider provider = mcpToolCallbackProvider.getIfAvailable();
-            if (provider == null) {
-                log.info("[D66] 容器中没有 MCP ToolCallbackProvider——跳过远端工具加载");
-                return new ToolCallback[0];
-            }
-
-            ToolCallback[] callbacks = provider.getToolCallbacks();
-            if (callbacks == null || callbacks.length == 0) {
-                log.warn("[D66] MCP Client 已装配，但未拉取到任何工具——检查 MCP Server 是否启动");
-                return new ToolCallback[0];
-            }
-            return callbacks;
-
-        } catch (Exception e) {
-            // MCP Server 连不上、协议不匹配、鉴权失败……都在这里兜住
-            log.warn("[D66] 拉取 MCP 远端工具失败，降级为纯本地工具模式: {}", e.getMessage());
-            return new ToolCallback[0];
-        }
+        log.info("[D68] 工具回调重建完成，共 {} 个", wrappedCallbacks.length);
     }
 
     // ==================== 简单调用（无记忆、无工具） ====================

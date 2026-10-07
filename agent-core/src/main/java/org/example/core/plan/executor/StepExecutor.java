@@ -5,32 +5,51 @@ import org.example.core.plan.config.PlanProperties;
 import org.example.core.plan.model.PlanExecutionState;
 import org.example.core.plan.model.PlanStep;
 import org.example.core.plan.model.StepResult;
+import org.example.toolregistry.ToolRegistry;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 
 /**
- * 单步执行器
- * <p>
- * 职责：
+ * 单步执行器（D68 动态工具版）
+ *
+ * <h3>职责</h3>
  * <ul>
  *   <li>超时控制——用 Future.get(timeout)</li>
  *   <li>重试——每步最多 retry 次</li>
  *   <li>上下文注入——把前序步骤结果拼进 prompt</li>
- *   <li>工具调用——带上工具回调，让模型自主决定</li>
+ *   <li>工具调用——<b>每次执行时从 ToolRegistry 动态取工具</b></li>
  * </ul>
+ *
+ * <h3>D68 改动</h3>
+ * <p>
+ * 原实现注入 {@code @Qualifier("planToolCallbacks") ToolCallback[]}——
+ * 是启动时的快照。改为注入 {@link ToolRegistry}，
+ * 每次执行步骤时根据白名单动态取工具。
+ *
+ * <h3>为什么动态取而不是启动时缓存</h3>
+ * <p>
+ * 与 {@link org.example.core.plan.planner.PlannerService#buildToolCatalog()} 同理：
+ * D68 支持运行时刷新工具清单，MCP Server 上下线工具后，
+ * 已启动的 Plan 执行器必须能看到最新工具集——
+ * 否则会出现"Plan 生成时说工具存在、执行时说工具不存在"的诡异问题。
  */
 @Slf4j
 @Component
 public class StepExecutor {
 
     private final ChatClient executorClient;
-    private final ToolCallback[] toolCallbacks;
+
+    /** ★ D68：替代原来的 ToolCallback[] */
+    private final ToolRegistry toolRegistry;
+
     private final PlanProperties props;
 
     /** 超时控制线程池——每步独立提交，便于 cancel */
@@ -47,10 +66,10 @@ public class StepExecutor {
 
     public StepExecutor(
             @Qualifier("planExecutorClient") ChatClient executorClient,
-            @Qualifier("planToolCallbacks") ToolCallback[] toolCallbacks,
+            ToolRegistry toolRegistry,                 // ★ 替代 @Qualifier("planToolCallbacks")
             PlanProperties props) {
         this.executorClient = executorClient;
-        this.toolCallbacks = toolCallbacks;
+        this.toolRegistry = toolRegistry;
         this.props = props;
     }
 
@@ -72,7 +91,7 @@ public class StepExecutor {
 
             } catch (TimeoutException te) {
                 lastError = "执行超时（>" + props.getPerStepTimeoutMs() + "ms）";
-                log.warn("⏱️ 步骤 {} 第 {} 次尝试超时", step.id(), attempt + 1);
+                log.warn("⏱ 步骤 {} 第 {} 次尝试超时", step.id(), attempt + 1);
 
             } catch (Exception e) {
                 lastError = e.getMessage();
@@ -86,16 +105,32 @@ public class StepExecutor {
         return StepResult.failed(step, lastError, cost, attempt);
     }
 
-    /** 单次执行（含超时控制） */
+    /**
+     * 单次执行（含超时控制）
+     *
+     * <h3>D68 改动点</h3>
+     * <p>
+     * 方法开头根据 yml 白名单从 {@code ToolRegistry} 动态取工具，
+     * 传给 {@code executorClient}。
+     */
     private String doExecute(PlanStep step, PlanExecutionState state, int attempt)
             throws Exception {
+
+        // ★ D68：动态取当前白名单工具
+        Set<String> allowed = props.getAllowedTools().isEmpty()
+                ? toolRegistry.listNames()
+                : new HashSet<>(props.getAllowedTools());
+        ToolCallback[] callbacks = toolRegistry.getCallbacks(allowed);
+
+        log.debug("[D68] 步骤 {} 使用 {} 个工具（白名单 {}）",
+                step.id(), callbacks.length, allowed.size());
 
         String prompt = buildStepPrompt(step, state);
 
         Future<String> future = pool.submit(() ->
                 executorClient.prompt()
                         .user(prompt)
-                        .toolCallbacks(toolCallbacks)
+                        .toolCallbacks(callbacks)         // ★ 用动态取的
                         .toolContext(Map.of(
                                 "userId", state.getFullUserId(),
                                 "executionId", state.getExecutionId(),
