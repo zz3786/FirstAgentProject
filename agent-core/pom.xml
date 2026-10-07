@@ -44,6 +44,33 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
+
+
+        <!-- ============================================================
+     MCP Client Starter（D66）
+     作用：
+       - 自动装配 McpSyncClient，连接 yml 里配置的 MCP Server
+       - initialize 握手、Session 管理、tools/list 拉取全部自动完成
+       - 把每个 MCP Tool 包装成 ToolCallback，注册为 ToolCallbackProvider
+     注意：这个 Starter 会传递引入 OpenAiAutoConfiguration，
+     但 agent-core 已经引入过 spring-ai-starter-model-openai，
+     不产生新的自动配置要求。
+     ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-client</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             agent-tool-registry —— D67 工具注册中心
+             ChatService、PlanValidator、ToolRegistrationBootstrap
+             都依赖注册中心的接口和实现。
+             ============================================================ -->
+        <dependency>
+            <groupId>org.example</groupId>
+            <artifactId>agent-tool-registry</artifactId>
+        </dependency>
+
     </dependencies>
 
 </project>

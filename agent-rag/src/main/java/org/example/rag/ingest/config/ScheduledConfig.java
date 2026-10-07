@@ -8,15 +8,24 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
 /**
- * 定时任务配置
+ * 定时扫描配置
+ *
+ * <h3>修复说明（D66 补丁）</h3>
  * <p>
- * 每 scanIntervalMs 扫描一次文档目录
+ * 原来读的 key 是 {@code app.rag.scan-interval-ms}，
+ * 但 {@link IngestProperties} 的前缀是 {@code app.rag.ingest}，
+ * 对应的 key 是 {@code app.rag.ingest.scan-interval-ms}。
+ * key 不匹配 → Spring 用默认值 60000ms（1 分钟）。
+ *
+ * <p>本类修正后，读取 {@code app.rag.ingest.scan-interval-ms}，
+ * 与 IngestProperties 保持一致。同时修正
+ * {@code @ConditionalOnProperty} 的 key（同样少了一层 {@code ingest}）。
  */
 @Slf4j
 @Configuration
 @EnableScheduling
 @ConditionalOnProperty(
-        name = "app.rag.incremental-enabled",
+        name = "app.rag.ingest.incremental-enabled",
         havingValue = "true",
         matchIfMissing = true
 )
@@ -29,8 +38,9 @@ public class ScheduledConfig {
     }
 
     @Scheduled(
-            initialDelayString = "${app.rag.scan-interval-ms:60000}",   // ★ 首次延迟 60 秒
-            fixedDelayString = "${app.rag.scan-interval-ms:60000}"
+            // ★ 修正：两个 key 都要加 ingest
+            initialDelayString = "${app.rag.ingest.scan-interval-ms:60000}",
+            fixedDelayString = "${app.rag.ingest.scan-interval-ms:60000}"
     )
     public void scanDirectory() {
         try {

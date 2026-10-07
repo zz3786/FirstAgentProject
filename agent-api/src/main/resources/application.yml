@@ -26,4 +26,5 @@ spring:
       - classpath:config/app-memory.yml
       - classpath:config/app-workflow.yml
       - classpath:config/app-plan.yml
+      - classpath:config/app-mcp-client.yml
       - classpath:config/app-observability.yml

@@ -1,10 +1,9 @@
 package org.example.core.chat.service;
 
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;   // ✅ 这是注解
 import org.example.cache.service.SemanticCacheService;
 import org.example.common.utils.TextUtils;
-import org.example.core.tools.SafeToolCallback;
 import org.example.core.tools.SafeToolCallbackFactory;
 import org.example.memory.ConversationMemoryService;
 import org.example.rag.retrieval.config.RecommendationProperties;
@@ -15,15 +14,18 @@ import org.example.rag.retrieval.service.ClarificationService;
 import org.example.rag.retrieval.service.HybridSearchService;
 import org.example.rag.retrieval.service.RecommendationService;
 import org.example.rag.retrieval.service.RetrievalProfileService;
-import org.example.rag.retrieval.tools.RetrievalPreferenceTools;
+import org.example.toolregistry.ToolRegistry;
 import org.example.tools.*;
 import org.example.common.utils.ConversationIdUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.method.MethodToolCallbackProvider;
+import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -119,6 +121,24 @@ public class ChatService {
      */
     private final ChatMemory chatMemory;
 
+    /** D67：工具注册中心——替代 D66 的手动合并逻辑 */
+    private final ToolRegistry toolRegistry;
+
+    /**
+     * MCP 远端工具提供者（D66）
+     *
+     * <p>由 {@code spring-ai-starter-mcp-client} 自动装配。
+     * 它的 {@code getToolCallbacks()} 返回所有已连接 MCP Server
+     * 暴露的工具。若没有配 MCP Server 或 Server 未启动，
+     * 返回空数组——不会抛异常。
+     *
+     * <p>用 {@link ObjectProvider} 包一层的原因：
+     * 若将来某个部署不启用 MCP Client Starter，
+     * 这个 Bean 可能不存在——{@code getIfAvailable()} 返回 null，
+     * 代码依然能走"只有本地工具"的路径。
+     */
+    private final ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider;
+
     // ==================== 工具回调（运行时构建） ====================
 
     /**
@@ -131,37 +151,6 @@ public class ChatService {
      */
     private ToolCallback[] wrappedCallbacks;
 
-    // ==================== 工具类（构造注入） ====================
-
-    /** 计算器：加减乘除 */
-    private final CalculatorTools calculatorTools;
-
-    /** 文本分析：字数统计、关键词计数 */
-    private final TextAnalysisTools textAnalysisTools;
-
-    /** 订单：按订单号查状态 */
-    private final OrderTools orderTools;
-
-    /** 待办：创建/列出待办 */
-    private final TodoTools todoTools;
-
-    /** 危险操作：测试异常兜底 */
-    private final RiskTools riskTools;
-
-    /** 娱乐：讲笑话、名言 */
-    private final EntertainmentTools entertainmentTools;
-
-    /** 用户偏好：保存结构化偏好（city/language 等） */
-    private final PreferenceTools preferenceTools;
-
-    /** 长期记忆：保存跨会话的重要事实 */
-    private final LongMemoryTools longMemoryTools;
-
-    /** 个性化检索：保存跨会话的重要事实 */
-    private final RetrievalPreferenceTools retrievalPreferenceTools;
-
-    /** ★ D53：兴趣标签工具 */
-    private final InterestTools interestTools;
 
     // ==================== 构造函数 ====================
 
@@ -188,17 +177,8 @@ public class ChatService {
             RetrievalProfileService retrievalProfileService,
             RecommendationProperties recommendationProperties,
             RecommendationService recommendationService, SafeToolCallbackFactory safeToolCallbackFactory,
-            @Qualifier("redisChatMemory") ChatMemory chatMemory,
-            CalculatorTools calculatorTools,
-            TextAnalysisTools textAnalysisTools,
-            OrderTools orderTools,
-            TodoTools todoTools,
-            RiskTools riskTools,
-            EntertainmentTools entertainmentTools,
-            PreferenceTools preferenceTools,
-            LongMemoryTools longMemoryTools,
-            RetrievalPreferenceTools retrievalPreferenceTools,
-            InterestTools interestTools) {
+            @Qualifier("redisChatMemory") ChatMemory chatMemory, ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider,
+            ToolRegistry toolRegistry) {
         this.chatClientWithMemory = chatClientWithMemory;
         this.chatClientWithoutMemory = chatClientWithoutMemory;
         this.semanticCacheService = semanticCacheService;
@@ -210,57 +190,83 @@ public class ChatService {
         this.recommendationService = recommendationService;
         this.safeToolCallbackFactory = safeToolCallbackFactory;
         this.chatMemory = chatMemory;
-        this.calculatorTools = calculatorTools;
-        this.textAnalysisTools = textAnalysisTools;
-        this.orderTools = orderTools;
-        this.todoTools = todoTools;
-        this.riskTools = riskTools;
-        this.entertainmentTools = entertainmentTools;
-        this.preferenceTools = preferenceTools;
-        this.longMemoryTools = longMemoryTools;
-        this.retrievalPreferenceTools = retrievalPreferenceTools;
-        this.interestTools = interestTools;
+        this.mcpToolCallbackProvider = mcpToolCallbackProvider;
+        this.toolRegistry = toolRegistry;
     }
 
     // ==================== 初始化 ====================
 
     /**
-     * 工具回调初始化
+     * 工具回调初始化（D67 升级版）
+     *
+     * <h3>D66 → D67 的变化</h3>
+     * <pre>
+     * D66：ChatService 里
+     *      1. 手动扫本地 @Tool
+     *      2. 手动拉 MCP 工具
+     *      3. 数组合并
+     *      4. 包装 SafeToolCallback
+     *
+     * D67：ChatService 里
+     *      1. 从 ToolRegistry 取全部回调 ← 上面 1~3 步已由 Bootstrap 完成
+     *      2. 包装 SafeToolCallback
+     * </pre>
+     *
+     * <h3>时序保证</h3>
      * <p>
-     * 执行时机：{@code @PostConstruct} 在"构造函数执行完成"之后触发。
-     * 因为所有工具都是构造注入（final 字段），构造器返回时它们已经有值——
-     * 所以此处访问 {@code calculatorTools} 等字段是安全的（不是 null）。
+     * {@code ToolRegistrationBootstrap} 用 {@code @EventListener(ApplicationReadyEvent)}
+     * 触发，而本方法用 {@code @PostConstruct}——后者的执行时机更早！
+     * 这会导致一个问题：{@code initToolCallbacks()} 执行时 registry 里还是空的。
+     *
+     * <p>解决：改成 {@code ApplicationRunner} 或者依赖 Spring 的
+     * "Bean 依赖保证"——让 ChatService 依赖 ToolRegistry Bean，
+     * Bootstrap 通过 {@code @DependsOn} 保证顺序。
      * <p>
-     * 做三件事：
-     * <ol>
-     *   <li>把 10 个工具对象扫描成原始 ToolCallback</li>
-     *   <li>用 SafeToolCallback 逐个包装（超时 / 异常 / 日志）</li>
-     *   <li>存为实例字段，后续每次对话以 {@code .toolCallbacks(...)} 传入</li>
-     * </ol>
+     * 但更简单的方式是：让本方法也监听 {@code ApplicationReadyEvent}，
+     * 通过 {@code @Order} 保证在 Bootstrap 之后执行。
      */
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
+    @Order(100)   // 保证在 ToolRegistrationBootstrap（默认顺序）之后
     public void initToolCallbacks() {
-        // ① 扫描所有 @Tool 注解的方法，生成原始回调
-        ToolCallback[] rawCallbacks = MethodToolCallbackProvider.builder()
-                .toolObjects(
-                        calculatorTools,
-                        textAnalysisTools,
-                        orderTools,
-                        todoTools,
-                        riskTools,
-                        entertainmentTools,
-                        preferenceTools,
-                        longMemoryTools,
-                        retrievalPreferenceTools,
-                        interestTools
-                )
-                .build()
-                .getToolCallbacks();
 
-        // ② 逐个包装成 SafeToolCallback（超时 10s、异常转友好文本、入参出参日志）
-        this.wrappedCallbacks = safeToolCallbackFactory.wrap(rawCallbacks);
+        ToolCallback[] all = toolRegistry.getCallbacks();
 
-        log.info("工具回调初始化完成，共 {} 个工具", wrappedCallbacks.length);
+        if (all.length == 0) {
+            log.warn("[D67] ToolRegistry 为空——Agent 将无工具可用");
+        }
+
+        this.wrappedCallbacks = safeToolCallbackFactory.wrap(all);
+
+        log.info("[D67] 工具回调初始化完成，共 {} 个（来源：ToolRegistry）", wrappedCallbacks.length);
+    }
+
+    /**
+     * 从 MCP Client 拉取远端工具回调（D66）
+     *
+     * <p>降级策略：任何一个环节失败都返回空数组，不抛异常。
+     * 原因是 MCP Server 是"可选依赖"——它不可用时 Agent 应该
+     * 依然能基于本地工具正常工作，而不是启动失败。
+     */
+    private ToolCallback[] fetchMcpToolCallbacks() {
+        try {
+            ToolCallbackProvider provider = mcpToolCallbackProvider.getIfAvailable();
+            if (provider == null) {
+                log.info("[D66] 容器中没有 MCP ToolCallbackProvider——跳过远端工具加载");
+                return new ToolCallback[0];
+            }
+
+            ToolCallback[] callbacks = provider.getToolCallbacks();
+            if (callbacks == null || callbacks.length == 0) {
+                log.warn("[D66] MCP Client 已装配，但未拉取到任何工具——检查 MCP Server 是否启动");
+                return new ToolCallback[0];
+            }
+            return callbacks;
+
+        } catch (Exception e) {
+            // MCP Server 连不上、协议不匹配、鉴权失败……都在这里兜住
+            log.warn("[D66] 拉取 MCP 远端工具失败，降级为纯本地工具模式: {}", e.getMessage());
+            return new ToolCallback[0];
+        }
     }
 
     // ==================== 简单调用（无记忆、无工具） ====================

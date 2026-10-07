@@ -18,6 +18,7 @@
 
     <modules>
         <module>agent-common</module>
+        <module>agent-tool-registry</module>
         <module>agent-tools</module>
         <module>agent-cache</module>
         <module>agent-memory</module>
@@ -64,6 +65,11 @@
             <dependency>
                 <groupId>org.example</groupId>
                 <artifactId>agent-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.example</groupId>
+                <artifactId>agent-tool-registry</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

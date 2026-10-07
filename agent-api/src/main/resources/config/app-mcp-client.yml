@@ -1,0 +1,39 @@
+# ============================================================
+# MCP Client 配置（D66）
+# ------------------------------------------------------------
+# Agent 作为 MCP Host，连接外部 MCP Server 拉取远程工具。
+# 本配置文件由 application.yml 的 spring.config.import 引入。
+# ============================================================
+
+spring:
+  ai:
+    mcp:
+      client:
+
+        # ① 总开关
+        enabled: true
+
+        # ② Client 标识——握手时告知 Server 自己的身份
+        name: agent-host
+        version: 1.0.0
+
+        # ③ 同步模式——和 WebMVC 栈匹配
+        type: SYNC
+
+        # ④ 请求超时——单次 MCP 调用的最长等待时间
+        request-timeout: 30s
+
+        # ⑤ ★ 关键：把 MCP 工具自动注册为 ToolCallback
+        #    ChatService 从 ToolCallbackProvider 里读它们
+        toolcallback:
+          enabled: true
+
+        # ⑥ ★ 连接 D65 写好的 MCP Server（Streamable HTTP）
+        streamable-http:
+          connections:
+
+            agent-mcp-server:
+              # MCP Server 的基地址（不带路径）
+              url: http://localhost:8086
+              # MCP 端点路径——和 Server 端 application.yml 的 mcp-endpoint 对齐
+              endpoint: /mcp

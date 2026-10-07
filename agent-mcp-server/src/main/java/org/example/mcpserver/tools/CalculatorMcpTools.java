@@ -74,15 +74,16 @@ public class CalculatorMcpTools {
      * @param operation 运算类型：add / sub / mul / div
      * @return 计算结果字符串
      */
+
     @McpTool(
-            name = "getOrderStatus",
-            description = "根据订单号查询订单状态。仅用于查询状态，不处理退换货、催单等其他操作。",
+            name = "mcp_calculate",
+            description = "执行基本的数学运算（通过 MCP 远程调用），支持加(add)、减(sub)、乘(mul)、除(div)",
             annotations = @McpTool.McpAnnotations(
-                    title = "查询订单状态",
-                    readOnlyHint = true,        // ★ 只读
+                    title = "基础数学运算",
+                    readOnlyHint = true,        // ★ 只读——不修改任何状态
                     destructiveHint = false,    // ★ 无破坏性
-                    idempotentHint = true,      // ★ 幂等——查两次结果一样
-                    openWorldHint = true        // ★ 开放世界——访问了订单系统（外部资源）
+                    idempotentHint = true,      // ★ 幂等——同参数调用结果相同
+                    openWorldHint = false       // ★ 封闭世界——只依赖入参，不访问外部系统
             )
     )
     public String calculate(
