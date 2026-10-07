@@ -43,9 +43,15 @@ public class OrderMcpTools {
      * @return 订单状态描述
      */
     @McpTool(
-            name = "getOrderStatus",
-            description = "根据订单号查询订单状态。仅用于查询状态，" +
-                    "不处理退换货、催单等其他操作。"
+            name = "calculate",
+            description = "执行基本的数学运算，支持加(add)、减(sub)、乘(mul)、除(div)",
+            annotations = @McpTool.McpAnnotations(
+                    title = "基础数学运算",
+                    readOnlyHint = true,        // ★ 只读——不修改任何状态
+                    destructiveHint = false,    // ★ 无破坏性
+                    idempotentHint = true,      // ★ 幂等——同参数调用结果相同
+                    openWorldHint = false       // ★ 封闭世界——只依赖入参，不访问外部系统
+            )
     )
     public String getOrderStatus(
             @McpToolParam(description = "订单号，纯数字格式，例如 1001",

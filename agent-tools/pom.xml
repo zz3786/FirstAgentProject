@@ -18,7 +18,6 @@
     </properties>
 
     <dependencies>
-
         <!-- ============================================================
              spring-ai-model —— 只提供 @Tool / ToolCallback / ChatModel 接口
              不需要 starter：agent-tools 是纯工具库，不含模型实现。

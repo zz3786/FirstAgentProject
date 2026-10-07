@@ -45,7 +45,7 @@ public class McpServerApplication {
                 传输协议  : STREAMABLE (HTTP POST + SSE)
                 MCP 端点  : http://localhost:8086/mcp
                 ──────────────────────────────────────────────
-                验证方式  : curl -X POST http://localhost:8081/mcp \\
+                验证方式  : curl -X POST http://localhost:8086/mcp \\
                              -H "Content-Type: application/json" \\
                              -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
                 ══════════════════════════════════════════════
