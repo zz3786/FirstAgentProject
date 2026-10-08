@@ -39,11 +39,11 @@ public class PlanProperties {
 
     // ========== 工具白名单 ==========
     /**
-     * 允许 Plan 使用的工具名列表。
-     * <p>
-     * 空列表 = 不启用白名单（不推荐）。
-     * 生产环境必须显式声明，防止 LLM 编造工具名或调用危险工具。
+     * @deprecated D69 起，Plan 工具白名单由 ToolProfile 管理。
+     *             见 {@code app-tool-profiles.yml} 的 {@code plan-execute} profile。
+     *             此字段保留仅为向后兼容——填了也不会生效。
      */
+    @Deprecated
     private List<String> allowedTools = List.of();
 
     // ========== 状态持久化 ==========

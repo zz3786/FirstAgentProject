@@ -6,6 +6,7 @@ import org.example.core.plan.config.PlanProperties;
 import org.example.core.plan.exception.PlanException;
 import org.example.core.plan.model.Plan;
 import org.example.core.plan.model.PlanRequest;
+import org.example.core.toolprofile.ToolProfileResolver;
 import org.example.toolregistry.ToolRegistry;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.converter.BeanOutputConverter;
@@ -38,15 +39,19 @@ public class PlannerService {
     /** ★ D68：改为 ToolRegistry 动态取 */
     private final ToolRegistry toolRegistry;
 
+    /** D69：工具画像解析器——取代直接依赖 ToolRegistry */
+    private final ToolProfileResolver toolProfileResolver;
+
     private final PlanProperties props;
     private final BeanOutputConverter<Plan> converter;
 
     public PlannerService(
             @Qualifier("plannerClient") ChatClient plannerClient,
-            ToolRegistry toolRegistry,                 // ★ 替代 ToolCallback[]
+            ToolRegistry toolRegistry, ToolProfileResolver toolProfileResolver,                 // ★ 替代 ToolCallback[]
             PlanProperties props) {
         this.plannerClient = plannerClient;
         this.toolRegistry = toolRegistry;
+        this.toolProfileResolver = toolProfileResolver;
         this.props = props;
         this.converter = new BeanOutputConverter<>(Plan.class);
     }
@@ -248,12 +253,8 @@ public class PlannerService {
      * 每次动态取保证"生成 Plan 时的工具集 = 当前真实可用的工具集"。
      */
     private String buildToolCatalog() {
-        // ★ 白名单过滤
-        Set<String> allowed = props.getAllowedTools().isEmpty()
-                ? toolRegistry.listNames()
-                : new HashSet<>(props.getAllowedTools());
-
-        ToolCallback[] callbacks = toolRegistry.getCallbacks(allowed);
+        // ★ D69：从 profile 取
+        ToolCallback[] callbacks = toolProfileResolver.resolveForConsumer("planner-service");
 
         StringBuilder sb = new StringBuilder();
         int idx = 1;

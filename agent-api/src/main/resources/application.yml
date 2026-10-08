@@ -27,4 +27,6 @@ spring:
       - classpath:config/app-workflow.yml
       - classpath:config/app-plan.yml
       - classpath:config/app-mcp-client.yml
+      - classpath:config/app-tool-profiles.yml
+      - classpath:config/app-rbac.yml
       - classpath:config/app-observability.yml

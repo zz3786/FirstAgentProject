@@ -2,31 +2,31 @@ package org.example.core.chat.service;
 
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.example.toolregistry.ToolRefreshListener;
-import org.springframework.context.event.EventListener;   // ✅ 这是注解
 import org.example.cache.service.SemanticCacheService;
+import org.example.common.utils.ConversationIdUtils;
 import org.example.common.utils.TextUtils;
+import org.example.core.rbac.ToolAuthorizer;
+import org.example.core.rbac.wrapper.AuthzToolCallback;
+import org.example.core.toolprofile.ToolProfileResolver;
 import org.example.core.tools.SafeToolCallbackFactory;
 import org.example.memory.ConversationMemoryService;
 import org.example.rag.retrieval.config.RecommendationProperties;
-import org.example.rag.shared.model.RagFilter;
 import org.example.rag.retrieval.model.RecommendedDoc;
 import org.example.rag.retrieval.model.RetrievalProfile;
 import org.example.rag.retrieval.service.ClarificationService;
 import org.example.rag.retrieval.service.HybridSearchService;
 import org.example.rag.retrieval.service.RecommendationService;
 import org.example.rag.retrieval.service.RetrievalProfileService;
+import org.example.rag.shared.model.RagFilter;
+import org.example.toolregistry.ToolRefreshListener;
 import org.example.toolregistry.ToolRegistry;
-import org.example.tools.*;
-import org.example.common.utils.ConversationIdUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.ToolCallbackProvider;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.stereotype.Service;
@@ -38,27 +38,28 @@ import java.util.stream.Collectors;
 
 /**
  * Agent 核心业务服务
- * <p>
- * <b>职责</b>：
+ *
+ * <h3>职责</h3>
  * <ol>
  *   <li>承接 Controller 请求，编排"缓存 → 前置检索 → 澄清判定 → LLM 生成"的完整流程</li>
  *   <li>管理工具回调和安全包装</li>
  *   <li>把底层异常转成对用户友好的文本</li>
  * </ol>
+ *
+ * <h3>D68 / D69 后的工具装配链</h3>
+ * <pre>
+ *   ToolRegistry（全量工具，D67）
+ *       ↓
+ *   ToolProfileResolver（按 chat-service 画像过滤）
+ *       ↓
+ *   SafeToolCallback（重试/超时/日志/异常兜底，D66）
+ *       ↓
+ *   AuthzToolCallback（工具级 + 参数级鉴权，D69）
+ *       ↓
+ *   wrappedCallbacks → 传给 ChatClient
+ * </pre>
  * <p>
- * <b>依赖装配</b>：
- * <ul>
- *   <li>{@code redisChatClient}：主业务 Client，带 10 个 Advisor（记忆 + 压缩 + 偏好 + 兴趣 + RAG + 长期记忆 + 对话历史 + 工具日志 + 对话写入 + 提示词日志）</li>
- *   <li>{@code plainChatClient}：裸 Client，无任何 Advisor，用于简单调用</li>
- *   <li>{@code SemanticCacheService}：语义缓存，避免重复调 LLM</li>
- *   <li>{@code HybridSearchService}：混合检索——D47 前置调用，供澄清判定使用</li>
- *   <li>{@code ClarificationService}：D47 澄清判定——检索不明确时反问用户</li>
- *   <li>{@code ChatMemory}：会话记忆，用于"清空对话"功能</li>
- *   <li>10 个工具类：构造注入，在 {@code @PostConstruct} 里包装</li>
- * </ul>
- * <p>
- * Advisor 装配、Memory 绑定、工具装配都在 {@code ChatClientConfig} 里完成。
- * 本类不关心它们怎么构建，只负责用。
+ * <b>注意执行顺序</b>：鉴权在最外层——失败不消耗重试/超时预算。
  */
 @Slf4j
 @Service
@@ -66,109 +67,58 @@ public class ChatService implements ToolRefreshListener {
 
     // ==================== 注入的 Client 与 Service ====================
 
-    /**
-     * 主业务 Client（带 10 个 Advisor）
-     * <p>
-     * 每次调用会依次经过（由 {@code getOrder()} 决定）：
-     * <pre>
-     * MessageChatMemoryAdvisor（内置，极小 order）
-     *   → CompactingChatMemoryAdvisor(50)
-     *   → PreferenceAdvisor(100)
-     *   → UserInterestAdvisor(120)
-     *   → RagAdvisor(150)
-     *   → LongTermMemoryAdvisor(200)
-     *   → ConversationRetrievalAdvisor(210)
-     *   → ConversationMemoryAdvisor(250)
-     *   → DebugPromptAdvisor(LOWEST_PRECEDENCE - 1)
-     *   → ToolLoggingAdvisor(LOWEST_PRECEDENCE)
-     * </pre>
-     */
+    /** 主业务 Client（带 Advisor 链） */
     private final ChatClient chatClientWithMemory;
 
-    /**
-     * 裸 Client（无 Advisor、无记忆、无工具）
-     * <p>
-     * 用于 syncChat / streamChat 这类"简单、一次性"调用。
-     */
+    /** 裸 Client（无 Advisor、无记忆、无工具） */
     private final ChatClient chatClientWithoutMemory;
 
-    /** 语义缓存——避免重复问题重复调 LLM */
+    /** 语义缓存 */
     private final SemanticCacheService semanticCacheService;
 
-    /**对话历史向量库服务**/
-    private final ConversationMemoryService conversationMemoryService;   // ★ 新增
+    /** 对话历史向量库服务 */
+    private final ConversationMemoryService conversationMemoryService;
 
-    /** 混合检索——D47 前置调用，结果传给 RagAdvisor 避免重复检索 */
+    /** 混合检索——D47 前置调用 */
     private final HybridSearchService hybridSearchService;
 
-    /** 澄清判定——D47 核心，判断检索是否"模糊" */
+    /** 澄清判定——D47 */
     private final ClarificationService clarificationService;
 
-    /** D51 个性化检索 核心，" */
+    /** D51 个性化检索 */
     private final RetrievalProfileService retrievalProfileService;
 
-    /** ★ D52：主动推荐配置 */
+    /** D52 主动推荐配置 */
     private final RecommendationProperties recommendationProperties;
 
-    /** ★ D52：主动推荐服务 */
+    /** D52 主动推荐服务 */
     private final RecommendationService recommendationService;
 
+    /** 工具安全包装工厂 */
     private final SafeToolCallbackFactory safeToolCallbackFactory;
 
-    /**
-     * 会话记忆
-     * <p>
-     * 用于 {@link #clearMemory(String)} 真正清空 {@code CHAT:xxx}——
-     * 之前只打日志没清，本次补上。
-     */
+    /** 会话记忆 */
     private final ChatMemory chatMemory;
 
-    /** D67：工具注册中心——替代 D66 的手动合并逻辑 */
+    /** D67 工具注册中心 */
     private final ToolRegistry toolRegistry;
 
-    /**
-     * MCP 远端工具提供者（D66）
-     *
-     * <p>由 {@code spring-ai-starter-mcp-client} 自动装配。
-     * 它的 {@code getToolCallbacks()} 返回所有已连接 MCP Server
-     * 暴露的工具。若没有配 MCP Server 或 Server 未启动，
-     * 返回空数组——不会抛异常。
-     *
-     * <p>用 {@link ObjectProvider} 包一层的原因：
-     * 若将来某个部署不启用 MCP Client Starter，
-     * 这个 Bean 可能不存在——{@code getIfAvailable()} 返回 null，
-     * 代码依然能走"只有本地工具"的路径。
-     */
-    private final ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider;
+    /** D69 前置：工具画像解析器 */
+    private final ToolProfileResolver toolProfileResolver;
 
-    // ==================== 工具回调（运行时构建） ====================
+    /** ★ D69 新增：工具授权器 */
+    private final ToolAuthorizer toolAuthorizer;
+
+    // ==================== 运行时工具回调 ====================
 
     /**
      * 包装后的工具回调
-     * <p>
-     * 每个原始 {@code ToolCallback} 都被 {@code SafeToolCallback} 包裹，
-     * 实现"超时控制 + 入参出参日志 + 异常兜底"。
-     * <p>
-     * 不能声明为 {@code final}：要在 {@code @PostConstruct} 中赋值。
+     * <p>每个工具已经过 SafeToolCallback + AuthzToolCallback 双层包装。
      */
     private ToolCallback[] wrappedCallbacks;
 
-
     // ==================== 构造函数 ====================
 
-    /**
-     * 注入所有依赖
-     * <p>
-     * Advisor 装配、Memory 绑定、工具装配都在 {@code ChatClientConfig} 里完成，
-     * 本类只负责用现成的组件。
-     *
-     * @param chatClientWithMemory   带记忆的主业务 Client
-     * @param chatClientWithoutMemory 裸 Client
-     * @param semanticCacheService   语义缓存
-     * @param hybridSearchService    混合检索——D47 前置检索
-     * @param clarificationService   澄清判定——D47
-     * @param chatMemory             会话记忆——用于清空对话
-     */
     public ChatService(
             @Qualifier("redisChatClient") ChatClient chatClientWithMemory,
             @Qualifier("plainChatClient") ChatClient chatClientWithoutMemory,
@@ -178,9 +128,13 @@ public class ChatService implements ToolRefreshListener {
             ClarificationService clarificationService,
             RetrievalProfileService retrievalProfileService,
             RecommendationProperties recommendationProperties,
-            RecommendationService recommendationService, SafeToolCallbackFactory safeToolCallbackFactory,
-            @Qualifier("redisChatMemory") ChatMemory chatMemory, ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider,
-            ToolRegistry toolRegistry) {
+            RecommendationService recommendationService,
+            SafeToolCallbackFactory safeToolCallbackFactory,
+            @Qualifier("redisChatMemory") ChatMemory chatMemory,
+            ToolRegistry toolRegistry,
+            ToolProfileResolver toolProfileResolver,
+            ToolAuthorizer toolAuthorizer) {              // ★ D69 新增
+
         this.chatClientWithMemory = chatClientWithMemory;
         this.chatClientWithoutMemory = chatClientWithoutMemory;
         this.semanticCacheService = semanticCacheService;
@@ -192,24 +146,16 @@ public class ChatService implements ToolRefreshListener {
         this.recommendationService = recommendationService;
         this.safeToolCallbackFactory = safeToolCallbackFactory;
         this.chatMemory = chatMemory;
-        this.mcpToolCallbackProvider = mcpToolCallbackProvider;
         this.toolRegistry = toolRegistry;
+        this.toolProfileResolver = toolProfileResolver;
+        this.toolAuthorizer = toolAuthorizer;
     }
-
-    // ==================== 初始化 ====================
 
     // ==================== 工具回调生命周期（D68 三入口）====================
 
     /**
      * 保底初始化——Bean 创建后立即调用一次。
-     * <p>
-     * 此时 {@code ToolRegistry} 还是空的（因为 D67 的 Bootstrap
-     * 在 {@code ApplicationReadyEvent} 阶段才注册工具）——
-     * 所以这里建出的 {@code wrappedCallbacks} 是空数组。
-     * <p>
-     * 保留它的价值：如果某些场景下 {@code ApplicationReadyEvent}
-     * 没触发（比如某些单元测试直接注入 ChatService），
-     * 至少 {@code wrappedCallbacks} 不是 null，不会 NPE。
+     * <p>此时 ToolRegistry 通常为空——建出的 wrappedCallbacks 是空数组。
      */
     @PostConstruct
     public void initToolCallbacks() {
@@ -219,9 +165,7 @@ public class ChatService implements ToolRefreshListener {
 
     /**
      * 启动后重建——在 Bootstrap 注册工具完成之后执行。
-     * <p>
-     * {@code @Order(100)} 保证晚于 {@code ToolRegistrationBootstrap.bootstrap()}（{@code @Order(50)}）。
-     * 此时 {@code ToolRegistry} 已经填好数据，这里能拿到真实的工具集。
+     * <p>{@code @Order(100)} 晚于 ToolRegistrationBootstrap.bootstrap()（{@code @Order(50)}）。
      */
     @EventListener(ApplicationReadyEvent.class)
     @Order(100)
@@ -231,10 +175,7 @@ public class ChatService implements ToolRefreshListener {
     }
 
     /**
-     * 运行时刷新回调——由 {@code ToolRefreshService} 在 refresh 后通知。
-     * <p>
-     * 当运维手动触发刷新、或定时任务触发刷新时，本方法被调用，
-     * 从最新的 {@code ToolRegistry} 重建 {@code wrappedCallbacks}。
+     * 运行时刷新回调——由 ToolRefreshService 在 refresh 后通知。
      */
     @Override
     public void onToolsRefreshed() {
@@ -243,36 +184,49 @@ public class ChatService implements ToolRefreshListener {
     }
 
     /**
-     * 从 {@code ToolRegistry} 重建 wrappedCallbacks。
-     * <p>
-     * 三个入口（@PostConstruct / @EventListener / onToolsRefreshed）
-     * 都调这个方法——逻辑只有一份。
-     * <p>
-     * {@code synchronized} 保证重建过程的原子性——
-     * 防止并发刷新导致 wrappedCallbacks 出现半更新状态。
+     * 从 ToolProfile 取工具 → Safe 包装 → Authz 包装。
+     *
+     * <h3>D69 完整包装链</h3>
+     * <pre>
+     *   ToolProfileResolver.resolveForConsumer("chat-service")
+     *       ↓ ToolCallback[]
+     *   SafeToolCallbackFactory.wrap(...)                    ← 重试/超时/日志
+     *       ↓ ToolCallback[]
+     *   AuthzToolCallback（本方法包装）                       ← 鉴权
+     *       ↓ ToolCallback[]
+     *   wrappedCallbacks
+     * </pre>
+     *
+     * <h3>为什么鉴权在最外层</h3>
+     * <ul>
+     *   <li>鉴权失败不该触发重试——权限是确定性的</li>
+     *   <li>鉴权失败不该消耗超时预算——快速返回</li>
+     * </ul>
      */
     private synchronized void rebuildWrappedCallbacks() {
-        ToolCallback[] all = toolRegistry.getCallbacks();
+        // ① 从 profile 取工具
+        ToolCallback[] profileCallbacks = toolProfileResolver.resolveForConsumer("chat-service");
 
-        if (all.length == 0) {
-            log.warn("[D68] ToolRegistry 为空——Agent 当前无工具可用");
+        if (profileCallbacks.length == 0) {
+            log.warn("[D68] chat-service profile 解析为空——Agent 当前无工具可用");
         }
 
-        this.wrappedCallbacks = safeToolCallbackFactory.wrap(all);
+        // ② 包 SafeToolCallback（重试 + 超时 + 日志 + 异常兜底）
+        ToolCallback[] safeWrapped = safeToolCallbackFactory.wrap(profileCallbacks);
 
-        log.info("[D68] 工具回调重建完成，共 {} 个", wrappedCallbacks.length);
+        // ③ ★ D69：再包 AuthzToolCallback（鉴权）—— 在 Safe 外层
+        ToolCallback[] fullyWrapped = Arrays.stream(safeWrapped)
+                .map(cb -> (ToolCallback) new AuthzToolCallback(cb, toolAuthorizer))
+                .toArray(ToolCallback[]::new);
+
+        this.wrappedCallbacks = fullyWrapped;
+
+        log.info("[D69] 工具回调重建完成，共 {} 个（profile: chat-service, RBAC 已包装）",
+                fullyWrapped.length);
     }
 
     // ==================== 简单调用（无记忆、无工具） ====================
 
-    /**
-     * 同步调用（无记忆、无工具）
-     * <p>
-     * 用途：快速测试模型连通性、不需要上下文的一次性问答。
-     *
-     * @param userInput 用户输入
-     * @return 模型完整回复（阻塞直到生成完毕）
-     */
     public String syncChat(String userInput) {
         return chatClientWithoutMemory.prompt()
                 .user(userInput)
@@ -280,14 +234,6 @@ public class ChatService implements ToolRefreshListener {
                 .content();
     }
 
-    /**
-     * 流式调用（无记忆、无工具）
-     * <p>
-     * 用途：演示打字机效果、不需要记忆的一次性对话。
-     *
-     * @param userInput 用户输入
-     * @return 文本流，逐 token 推送
-     */
     public Flux<String> streamChat(String userInput) {
         return chatClientWithoutMemory.prompt()
                 .user(userInput)
@@ -304,47 +250,21 @@ public class ChatService implements ToolRefreshListener {
 
     /**
      * 流式调用 + 会话记忆 + 工具调用 + D47 澄清（主入口）
-     * <p>
-     * <b>完整链路</b>：
-     * <pre>
-     * ┌─ ① 语义缓存查询 ─────────────── 命中则直接返回，跳过后续所有步骤
-     * │
-     * ├─ ② D47 前置 RAG 检索 ────────── 一次检索，两用：
-     * │                                   - 供澄清判定
-     * │                                   - 传给 RagAdvisor（避免重复检索）
-     * │
-     * ├─ ③ D47 澄清判定 ──────────────── 若检索模糊 → 直接返回反问文本，不调 LLM
-     * │
-     * └─ ④ 调 LLM（Advisor 链自动执行）：
-     *      1. MessageChatMemoryAdvisor    读 CHAT，注入历史
-     *      2. CompactingChatMemoryAdvisor 检查是否压缩（>100 条触发）
-     *      3. PreferenceAdvisor           读 USER_PREF，注入偏好
-     *      4. RagAdvisor                  用前置检索结果注入 RAG 资料
-     *      5. MemoryRetrievalAdvisor      检索 LTM，注入相关记忆
-     *      6. ToolLoggingAdvisor          打请求日志
-     *      ──────────── 发模型 ────────────
-     *      7. 模型可能返回 tool_call
-     *      8. SafeToolCallback 执行工具（超时 / 异常兜底）
-     *      9. 工具结果回传模型
-     *      10. 模型流式返回最终答案
-     *      11. MessageChatMemoryAdvisor 写 CHAT
-     *      12. 缓存最终答案
-     * </pre>
      *
-     * @param userInput      用户输入
-     * @param conversationId 会话 ID（格式 "userId:sessionTag"，用于隔离 CHAT）
-     * @param ragFilter      过滤条件（null 表示不过滤）
-     * @return 文本流；出错时返回一段带 ⚠️ 的友好提示
+     * <h3>D69 改动</h3>
+     * <p>
+     * {@code toolContext(...)} 里新增 {@code securityLevel}——
+     * 供 {@link AuthzToolCallback} 做工具级鉴权。
      */
     public Flux<String> streamChatWithMemory(String userInput,
                                              String conversationId,
                                              RagFilter ragFilter) {
         long startTime = System.currentTimeMillis();
 
-        // ★ 归一化 filter（后续所有分支都用 effectiveFilter）
+        // ★ 归一化 filter
         RagFilter effectiveFilter = (ragFilter == null) ? RagFilter.empty() : ragFilter;
 
-        // ★ 从 conversationId 提取纯 userId 作为租户 ID
+        // ★ 从 conversationId 提取纯 userId
         String fullUserId = ConversationIdUtils.extractFullUserId(conversationId);
 
         // ★ D53：构造过滤维度 Map
@@ -361,18 +281,14 @@ public class ChatService implements ToolRefreshListener {
         RetrievalProfile profile = retrievalProfileService.get(fullUserId);
 
         // ==================== ② D47 前置 RAG 检索 ====================
-        // 提前做一次检索——供澄清判定和 RagAdvisor 共用，避免重复
-        // 检索失败时降级为空列表——不阻断主流程
-        final List<Document> prefetchedDocs = fetchPrefetchedDocs(userInput, effectiveFilter,profile);
+        final List<Document> prefetchedDocs = fetchPrefetchedDocs(userInput, effectiveFilter, profile);
 
         // ==================== ③ D47 澄清判定 ====================
-        // 命中模糊条件 → 直接返回反问文本，不调 LLM
         if (clarificationService.isAmbiguous(userInput, prefetchedDocs)) {
             String clarifyMsg = clarificationService.buildClarification(userInput, prefetchedDocs);
             log.info("🤔 [反问] query=[{}] 耗时={}ms（跳过 LLM）",
                     TextUtils.truncate(userInput, 30),
                     System.currentTimeMillis() - startTime);
-            // 注意：反问不存语义缓存——Flux.just 不经过 doOnComplete
             return Flux.just(clarifyMsg);
         }
 
@@ -380,22 +296,23 @@ public class ChatService implements ToolRefreshListener {
         StringBuilder fullAnswer = new StringBuilder();
         long[] firstTokenTime = {0};
 
-        Flux<String> mainStream =  chatClientWithMemory.prompt()
+        // ★ D69：提取用户密级——传给 AuthzToolCallback
+        int userSecurityLevel = extractUserSecurityLevel(effectiveFilter);
+
+        Flux<String> mainStream = chatClientWithMemory.prompt()
                 .user(userInput)
                 .advisors(a -> {
-                    // 会话 ID——MessageChatMemoryAdvisor 用来读写 CHAT
                     a.param(ChatMemory.CONVERSATION_ID, conversationId);
-
-                    // 过滤条件——RagAdvisor 用
                     if (!effectiveFilter.isEmpty()) {
                         a.param("rag_filter", effectiveFilter);
                     }
-
-                    // ★ D47：前置检索结果传给 RagAdvisor，避免重复检索
-                    //   即使是空 List 也传——表示"确实没结果"，RagAdvisor 直接跳过
                     a.param("prefetched_docs", prefetchedDocs);
                 })
-                .toolContext(Map.of("userId", fullUserId))       // ★ 关键——把 userId 传给工具
+                // ★ D69：toolContext 新增 securityLevel
+                .toolContext(Map.of(
+                        "userId", fullUserId,
+                        "securityLevel", userSecurityLevel
+                ))
                 .toolCallbacks(wrappedCallbacks)
                 .stream()
                 .content()
@@ -413,7 +330,6 @@ public class ChatService implements ToolRefreshListener {
                     log.info("⏱️ [完整响应] query=[{}] 总耗时={}ms",
                             TextUtils.truncate(userInput, 30), totalCost);
 
-                    // 缓存最终答案（反问走不到这里——它在前面 return 了）
                     String answer = fullAnswer.toString();
                     if (!answer.isBlank()) {
                         semanticCacheService.store(userInput, answer, fullUserId, filterDims);
@@ -427,17 +343,29 @@ public class ChatService implements ToolRefreshListener {
                 });
 
         // ★ D52：主流结束后追加推荐块
-        //   Flux.defer 保证推荐逻辑延迟到"主流 complete 后"才执行
         return mainStream.concatWith(
                 Flux.defer(() -> buildRecommendationFlux(
                         userInput, conversationId, prefetchedDocs, effectiveFilter))
         );
     }
 
+    /**
+     * 从 RagFilter 提取用户密级（D69）
+     * <p>
+     * ChatController 已经把 {@code SessionUtils.getSecurityLevel(request)}
+     * 塞进了 {@code RagFilter.securityLevelMax}——这里直接读。
+     * <p>
+     * 兜底 1——未登录 / filter 为空时只能调最低密级工具。
+     */
+    private int extractUserSecurityLevel(RagFilter filter) {
+        if (filter == null || filter.securityLevelMax() == null) {
+            return 1;
+        }
+        return filter.securityLevelMax();
+    }
 
+    // ==================== 清空记忆 ====================
 
-
-    // ==================== 辅助方法 ====================
     /**
      * 清空某个会话的全部记忆
      * <p>
@@ -447,19 +375,7 @@ public class ChatService implements ToolRefreshListener {
      *   <li><b>conv-mem:*</b>——该会话的所有轮次向量（D50 长期历史）</li>
      * </ol>
      * <p>
-     * <b>不动</b>：
-     * <ul>
-     *   <li>LTM:*（长期记忆）——用户的跨会话事实（"我叫张三"）</li>
-     *   <li>USER_PREF:*（用户偏好）——用户的稳定偏好</li>
-     *   <li>USER_INTEREST:*（兴趣标签）——跨会话累积，不属于某一次对话</li>
-     *   <li>semantic-cache:*（语义缓存）——按用户共享，不清</li>
-     * </ul>
-     * <p>
-     * <b>为什么不清 LTM</b>：
-     * 用户"清空对话"针对的是"这次聊天记录"，不是"忘掉我"。
-     * 要彻底忘掉，得有独立的功能入口（"注销账号"级别）。
-     *
-     * @param conversationId 完整会话 ID（"hospital-a:user-alice:c383288e"）
+     * <b>不动</b>：LTM / USER_PREF / USER_INTEREST / semantic-cache。
      */
     public void clearMemory(String conversationId) {
         // ① 清 CHAT——短期会话窗口
@@ -471,7 +387,6 @@ public class ChatService implements ToolRefreshListener {
         }
 
         // ② 清 conv-mem——D50 对话历史向量库
-        //    失败已在 Service 内部 catch，这里只打日志不抛
         boolean vectorDeleted = conversationMemoryService.deleteByConversationId(conversationId);
         if (vectorDeleted) {
             log.info("✅ 已清空 conv-mem 长期历史: conversationId={}", conversationId);
@@ -483,62 +398,29 @@ public class ChatService implements ToolRefreshListener {
 
     // ==================== 异常友好化 ====================
 
-    /**
-     * 把技术异常转成对用户友好的中文提示
-     * <p>
-     * <b>设计原则</b>：
-     * <ul>
-     *   <li>不暴露堆栈、异常类名</li>
-     *   <li>告诉用户"发生了什么 + 下一步怎么办"</li>
-     *   <li>日志里保留完整堆栈，返回给用户的只有友好文本</li>
-     * </ul>
-     *
-     * @param e 原始异常
-     * @return 用户可读的提示
-     */
     private String toFriendlyMessage(Throwable e) {
-        // ① AI 服务调用异常（DeepSeek 400/401/429 等）
         if (e instanceof WebClientResponseException w) {
             int s = w.getStatusCode().value();
-            if (s == 401) {
-                return "AI 服务认证失败，请联系管理员";
-            }
-            if (s == 429) {
-                return "请求太频繁，请稍后重试";
-            }
+            if (s == 401) return "AI 服务认证失败，请联系管理员";
+            if (s == 429) return "请求太频繁，请稍后重试";
             return "AI 服务暂时不可用，请稍后重试";
         }
-
-        // ② Redis 连接异常（记忆服务不可用）
         if (e instanceof RedisConnectionFailureException) {
             return "记忆服务暂时不可用，请稍后重试";
         }
-
-        // ③ 业务状态异常（比如未登录）
         if (e instanceof IllegalStateException) {
             return e.getMessage() == null ? "请先登录" : e.getMessage();
         }
-
-        // ④ 兜底：不暴露任何技术细节
         return "服务出了点问题，请稍后重试";
     }
 
-    /**
-     * 前置检索——带异常兜底
-     * <p>
-     * <b>为什么抽成方法</b>：
-     * try/catch 里分两次赋值 prefetchedDocs，会让它变成"非有效 final"——
-     * 后续 lambda 无法引用。
-     * 抽成方法后，调用方只做一次赋值——满足"有效 final"。
-     *
-     * @param query  用户问题
-     * @param filter 过滤条件
-     * @return 检索结果；失败时返回空列表（不阻断主流程）
-     */
+    // ==================== 辅助方法 ====================
+
     private List<Document> fetchPrefetchedDocs(String query, RagFilter filter, RetrievalProfile profile) {
         try {
-            List<Document> docs = hybridSearchService.search(query, filter,profile);
-            log.info("🔍 [前置检索] query=[{}] 返回 {} 条",TextUtils.truncate(query, 30), docs.size());
+            List<Document> docs = hybridSearchService.search(query, filter, profile);
+            log.info("🔍 [前置检索] query=[{}] 返回 {} 条",
+                    TextUtils.truncate(query, 30), docs.size());
             return docs;
         } catch (Exception e) {
             log.warn("🔍 [前置检索] 失败，降级为空结果", e);
@@ -546,17 +428,6 @@ public class ChatService implements ToolRefreshListener {
         }
     }
 
-    /**
-     * 构建推荐流——追加在主流末尾
-     * <p>
-     * <b>为什么用 Flux.defer 包裹</b>：
-     * 保证推荐逻辑在**主流 complete 之后**才真正执行——
-     * 此时 CHAT 里已经写入本轮对话，能正确取到历史提问。
-     * <p>
-     * <b>为什么吞异常</b>：
-     * 推荐是"锦上添花"——任何失败都降级为空 Flux，
-     * 绝不能因为推荐异常影响已经成功的回答。
-     */
     private Flux<String> buildRecommendationFlux(String userInput,
                                                  String conversationId,
                                                  List<Document> alreadyShown,
@@ -566,7 +437,6 @@ public class ChatService implements ToolRefreshListener {
                 return Flux.empty();
             }
 
-            // ① 排除已引用的 docId
             Set<String> excludeIds = alreadyShown == null
                     ? Set.of()
                     : alreadyShown.stream()
@@ -574,11 +444,9 @@ public class ChatService implements ToolRefreshListener {
                     .filter(Objects::nonNull)
                     .collect(Collectors.toSet());
 
-            // ② 取历史提问（不含当前这轮）
             List<String> historyQueries = extractRecentQueries(
                     conversationId, recommendationProperties.getRecentQueryCount());
 
-            // ③ 检索推荐
             List<RecommendedDoc> recs = recommendationService.recommend(
                     userInput, historyQueries, excludeIds, filter);
 
@@ -587,10 +455,11 @@ public class ChatService implements ToolRefreshListener {
                 return Flux.empty();
             }
 
-            // ④ 渲染成文本块（作为 Flux 的单个元素推送）
             String block = recommendationService.render(recs);
             log.info("[D52] 追加 {} 条推荐: userId={}, query=[{}]",
-                    recs.size(), ConversationIdUtils.extractFullUserId(conversationId), TextUtils.truncate(userInput, 30));
+                    recs.size(),
+                    ConversationIdUtils.extractFullUserId(conversationId),
+                    TextUtils.truncate(userInput, 30));
             return Flux.just(block);
 
         } catch (Exception e) {
@@ -599,13 +468,6 @@ public class ChatService implements ToolRefreshListener {
         }
     }
 
-    /**
-     * 从 CHAT 里取最近 N 条用户消息（不含当前这轮）
-     * <p>
-     * <b>为什么排除最后一条</b>：
-     * 主流 complete 时，MessageChatMemoryAdvisor 已经把本轮的 user 写入 CHAT——
-     * 它和传入的 userInput 重复，留在 historyQueries 里会重复检索。
-     */
     private List<String> extractRecentQueries(String conversationId, int n) {
         try {
             List<org.springframework.ai.chat.messages.Message> history =
@@ -620,7 +482,6 @@ public class ChatService implements ToolRefreshListener {
                     .filter(Objects::nonNull)
                     .toList();
 
-            // 排除最后一条（当前这轮）
             if (userMsgs.size() <= 1) {
                 return List.of();
             }
@@ -635,13 +496,6 @@ public class ChatService implements ToolRefreshListener {
         }
     }
 
-    /**
-     * ★ D53：把 RagFilter 拆成 Map——交给 SemanticCacheService
-     * <p>
-     * <b>为什么不在 agent-cache 里直接依赖 RagFilter</b>：
-     * agent-cache 不能依赖 agent-rag（会循环）。
-     * 由 ChatService（agent-core）负责转换——缓存层不感知业务模型。
-     */
     private Map<String, Object> buildFilterDims(RagFilter filter) {
         if (filter == null) {
             return Map.of();

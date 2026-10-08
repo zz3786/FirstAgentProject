@@ -1,0 +1,83 @@
+# ============================================================
+# 工具画像配置
+# ------------------------------------------------------------
+# 把"某个业务场景需要哪些工具"从代码里硬编码提升为 yml 声明。
+# 业务代码只认 profile 名，工具增删改全在 yml 里完成。
+#
+# 设计原则：
+#   1. 每个 profile 是一个"工具视图"——从 ToolRegistry 全量工具按维度过滤
+#   2. consumers 段把"业务名 → profile 名"做映射
+#   3. min-security-level 是 D69 RBAC 的预留字段——本轮不启用
+# ============================================================
+
+app:
+  tools:
+    # ============================================================
+    # 工具画像定义
+    # ------------------------------------------------------------
+    # 每个 profile 由 5 个可选过滤器组成，全部是 AND 关系：
+    #   - include-categories  按业务分类（ToolDescriptor.category）
+    #   - include-tools       显式白名单（工具名）
+    #   - include-sources     按来源（LOCAL / MCP）
+    #   - exclude-tools       显式黑名单
+    #   - min-security-level  最低密级（D69 启用）
+    #
+    # 过滤规则：
+    #   1. include-* 都不填 → 从"全部工具"开始
+    #   2. 有任一 include-* → 从它们的并集开始
+    #   3. 减去 exclude-tools
+    #   4. （D69）筛掉低于 min-security-level 的工具
+    # ============================================================
+    profiles:
+
+      # ─────────── 场景 1：ReAct 对话（ChatService） ───────────
+      # 默认全用，但排除危险工具和记忆写入
+      chat-default:
+        description: "ReAct 对话默认画像——全量工具 + 黑名单排除"
+        include-sources:
+          - LOCAL
+          - MCP
+        exclude-tools:
+          - riskyOperation        # 危险操作不该被 ReAct 主动触发
+          - saveLongTermMemory    # 记忆写入不该由 ReAct 直接管
+
+      # ─────────── 场景 2：Plan-and-Execute ───────────
+      # 严格白名单——只允许稳定的业务工具
+      plan-execute:
+        description: "任务规划与执行画像——严格分类白名单"
+        include-categories:
+          - calculation
+          - text
+          - order
+          - todo
+          - entertainment
+
+      # ─────────── 场景 3：管理后台（未来）───────────
+      # 只用 MCP 工具，且要求高密级
+      admin-console:
+        description: "运维管理画像——MCP 工具 + 高密级要求"
+        include-sources:
+          - MCP
+        min-security-level: 4       # D69 启用，本轮仅解析
+
+      # ─────────── 场景 4：只读审计（未来）───────────
+      audit-readonly:
+        description: "审计只读画像——只用只读类工具"
+        include-categories:
+          - calculation
+          - order
+          - text
+
+    # ============================================================
+    # 消费方 → Profile 映射
+    # ------------------------------------------------------------
+    # key   = 业务名（代码里硬编码的常量）
+    # value = profile 名（上面 profiles 段的 key）
+    #
+    # 运维改这里可以"把某个业务切到别的工具视图"——不用改代码。
+    # ============================================================
+    consumers:
+      chat-service: chat-default            # ChatService.rebuildWrappedCallbacks()
+      planner-service: plan-execute         # PlannerService.buildToolCatalog()
+      step-executor: plan-execute           # StepExecutor.doExecute()
+      plan-validator: plan-execute          # PlanValidator.validate()

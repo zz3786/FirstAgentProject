@@ -23,14 +23,3 @@ app:
     persist-state: true
     # 状态 TTL（小时）
     state-ttl-hours: 24
-
-    # 工具白名单——只有列在这的工具才能被 Plan 使用
-    # 空列表 = 不启用白名单（不推荐）
-    allowed-tools:
-      - calculate
-      - analyzeText
-      - getOrderStatus
-      - createTodo
-      - listTodos
-      - getJoke
-      - getQuote

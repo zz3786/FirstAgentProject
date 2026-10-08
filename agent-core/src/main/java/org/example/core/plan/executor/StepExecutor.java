@@ -5,6 +5,7 @@ import org.example.core.plan.config.PlanProperties;
 import org.example.core.plan.model.PlanExecutionState;
 import org.example.core.plan.model.PlanStep;
 import org.example.core.plan.model.StepResult;
+import org.example.core.toolprofile.ToolProfileResolver;
 import org.example.toolregistry.ToolRegistry;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.ToolCallback;
@@ -50,6 +51,9 @@ public class StepExecutor {
     /** ★ D68：替代原来的 ToolCallback[] */
     private final ToolRegistry toolRegistry;
 
+    /** D69：工具画像解析器——取代直接依赖 ToolRegistry */
+    private final ToolProfileResolver toolProfileResolver;
+
     private final PlanProperties props;
 
     /** 超时控制线程池——每步独立提交，便于 cancel */
@@ -66,10 +70,11 @@ public class StepExecutor {
 
     public StepExecutor(
             @Qualifier("planExecutorClient") ChatClient executorClient,
-            ToolRegistry toolRegistry,                 // ★ 替代 @Qualifier("planToolCallbacks")
+            ToolRegistry toolRegistry, ToolProfileResolver toolProfileResolver,                 // ★ 替代 @Qualifier("planToolCallbacks")
             PlanProperties props) {
         this.executorClient = executorClient;
         this.toolRegistry = toolRegistry;
+        this.toolProfileResolver = toolProfileResolver;
         this.props = props;
     }
 
@@ -116,21 +121,18 @@ public class StepExecutor {
     private String doExecute(PlanStep step, PlanExecutionState state, int attempt)
             throws Exception {
 
-        // ★ D68：动态取当前白名单工具
-        Set<String> allowed = props.getAllowedTools().isEmpty()
-                ? toolRegistry.listNames()
-                : new HashSet<>(props.getAllowedTools());
-        ToolCallback[] callbacks = toolRegistry.getCallbacks(allowed);
+        // ★ D69：从 profile 取
+        ToolCallback[] callbacks = toolProfileResolver.resolveForConsumer("step-executor");
 
-        log.debug("[D68] 步骤 {} 使用 {} 个工具（白名单 {}）",
-                step.id(), callbacks.length, allowed.size());
+        log.debug("[D69] 步骤 {} 使用 {} 个工具（profile: step-executor）",
+                step.id(), callbacks.length);
 
         String prompt = buildStepPrompt(step, state);
 
         Future<String> future = pool.submit(() ->
                 executorClient.prompt()
                         .user(prompt)
-                        .toolCallbacks(callbacks)         // ★ 用动态取的
+                        .toolCallbacks(callbacks)
                         .toolContext(Map.of(
                                 "userId", state.getFullUserId(),
                                 "executionId", state.getExecutionId(),
