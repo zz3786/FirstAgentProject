@@ -28,7 +28,7 @@ app:
       recall-multiplier: 2
       # 远程重排服务（TEI）
       rerank:
-        api-url: http://localhost:8081/rerank
+        api-url: ${TEI_RERANK_URL}
         timeout-seconds: 8
         # 低于此分数的结果过滤掉
         min-score: 0.3
