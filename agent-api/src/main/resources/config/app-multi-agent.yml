@@ -1,0 +1,168 @@
+# ============================================================
+# 多智能体协作配置（D71-D77）
+# ------------------------------------------------------------
+# 分成三块：
+#   1. multi-agent   多智能体编排参数
+#   2. rabbitmq      RabbitMQ 连接与拓扑
+#   3. worker        每个 Worker 的角色与 profile 映射
+# ============================================================
+
+app:
+  multi-agent:
+    # 总开关
+    enabled: true
+
+    # ---------- 主管 Agent ----------
+    supervisor:
+      # 拆解出的最大子任务数（防止模型拆出 20 个子任务）
+      max-subtasks: 6
+      # 单子任务最大执行时长（毫秒）
+      per-subtask-timeout-ms: 60000
+      # 整体最大执行时长（毫秒）
+      total-timeout-ms: 180000
+
+    # ---------- 自我反思 ----------
+    reflection:
+      # 是否启用 SelfReflectionAdvisor
+      enabled: true
+      # 反思最大轮次——超过则接受当前答案
+      max-rounds: 2
+      # 反思触发的最低质量阈值（0~1，低于则触发反思）
+      quality-threshold: 0.7
+
+    # ---------- 冲突处理（D76） ----------
+    conflict:
+      # 冲突解决策略：MAJORITY_VOTE / ARBITER
+      strategy: MAJORITY_VOTE
+      # 仲裁者 Agent 的角色（strategy=ARBITER 时使用）
+      arbiter-role: SUPERVISOR
+
+    # ---------- 结果聚合（D75） ----------
+    aggregation:
+      # 聚合策略：CONCAT / LLM_SYNTHESIS / WEIGHTED
+      strategy: LLM_SYNTHESIS
+      # 每条 Worker 结果注入聚合 Prompt 的最大字符数
+      max-result-chars: 2000
+
+  # ============================================================
+  # RabbitMQ 通信（D74）
+  # ------------------------------------------------------------
+  # 拓扑：
+  #   Exchange:  fap.agent.topic        (topic)
+  #   Task RK:   agent.{role}.task
+  #   Result RK: agent.{role}.result
+  #   DLX:       fap.agent.dlx          (fanout)
+  #   DLQ:       fap.agent.dlq
+  # ============================================================
+  agent-bus:
+    rabbit:
+      enabled: true
+
+      # ---------- Exchange ----------
+      exchange:
+        name: fap.agent.topic
+        type: topic
+        durable: true
+        auto-delete: false
+
+      # ---------- 死信 ----------
+      dead-letter:
+        exchange: fap.agent.dlx
+        queue: fap.agent.dlq
+        routing-key: dead-letter
+
+      # ---------- 角色队列 ----------
+      # 每个角色有独立的 task 队列
+      # 消费失败 N 次后进入 DLQ
+      queues:
+        supervisor:
+          task-queue: agent.supervisor.task.q
+          result-queue: agent.supervisor.result.q
+        financial:
+          task-queue: agent.financial.task.q
+          result-queue: agent.financial.result.q
+        technical:
+          task-queue: agent.technical.task.q
+          result-queue: agent.technical.result.q
+        legal:
+          task-queue: agent.legal.task.q
+          result-queue: agent.legal.result.q
+
+      # ---------- 消费者参数 ----------
+      consumer:
+        # 并发消费者数——一个队列同时几个线程消费
+        concurrency: 2
+        # 预取数量——一次拉几条
+        prefetch: 5
+        # 消费失败重试
+        max-retries: 3
+        # 重试间隔（毫秒）——指数退避
+        retry-backoff-ms: 1000
+
+      # ---------- 消息幂等 ----------
+      idempotency:
+        # 幂等键 TTL（秒）——防重复消费
+        ttl-seconds: 600
+        # Redis key 前缀
+        key-prefix: "AGENT_MSG_IDEMPOTENT:"
+
+  # ============================================================
+  # Worker Agent 角色映射（D73）
+  # ------------------------------------------------------------
+  # 每个 Worker：
+  #   - 用哪个 ChatClient（由 WorkerChatClientConfig 装配）
+  #   - 用哪个 ToolProfile（决定工具集）
+  #   - 用什么 System Prompt
+  # ============================================================
+  workers:
+    financial:
+      role: FINANCIAL
+      display-name: 财务专家
+      # 使用 app-tool-profiles.yml 里的 profile 名
+      tool-profile: worker-financial
+      system-prompt: |
+        你是一位资深的财务专家，擅长：
+        - 财务报表分析（利润表、资产负债表、现金流量表）
+        - 成本核算与预算管理
+        - 税务合规与筹划
+        - 订单金额、退款、报销等财务场景的判断
+        
+        回答要求：
+        1. 用专业但易懂的语言
+        2. 涉及金额时给出明确数字和单位
+        3. 不确定的地方明确说明"需要进一步核实"
+        4. 不做超出财务专业范围的判断
+
+    technical:
+      role: TECHNICAL
+      display-name: 技术专家
+      tool-profile: worker-technical
+      system-prompt: |
+        你是一位资深的技术专家，擅长：
+        - 系统架构设计与技术选型
+        - 代码审查与性能优化
+        - 故障排查与根因分析
+        - 数据库、缓存、消息队列等中间件
+        
+        回答要求：
+        1. 给出明确的技术方案和理由
+        2. 涉及代码时给出关键代码片段
+        3. 权衡利弊时列出 trade-off
+        4. 不做超出技术专业范围的判断
+
+    legal:
+      role: LEGAL
+      display-name: 法务专家
+      tool-profile: worker-legal
+      system-prompt: |
+        你是一位资深的法务专家，擅长：
+        - 合同条款审查与风险识别
+        - 合规性判断（数据安全、隐私保护）
+        - 知识产权相关咨询
+        - 用户协议、隐私政策的解读
+        
+        回答要求：
+        1. 明确引用相关法规或条款
+        2. 提示潜在风险等级（高/中/低）
+        3. 对不确定的法律问题，建议咨询执业律师
+        4. 不做超出法务专业范围的判断

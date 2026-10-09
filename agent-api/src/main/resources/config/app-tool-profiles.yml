@@ -68,6 +68,38 @@ app:
           - order
           - text
 
+
+      # ─────────── 场景 5：财务 Worker（D73）───────────
+      worker-financial:
+        description: "财务专家 Agent——订单查询、计算、长期记忆"
+        include-tools:
+          - calculate
+          - getOrderStatus
+          - createTodo
+          - analyzeText
+          - saveLongTermMemory
+          - mcp_calculate
+          - mcp_getOrderStatus
+
+      # ─────────── 场景 6：技术 Worker（D73）───────────
+      worker-technical:
+        description: "技术专家 Agent——计算、文本分析、长期记忆"
+        include-tools:
+          - calculate
+          - analyzeText
+          - createTodo
+          - saveLongTermMemory
+          - mcp_calculate
+
+      # ─────────── 场景 7：法务 Worker（D73）───────────
+      worker-legal:
+        description: "法务专家 Agent——只读工具 + 长期记忆"
+        include-tools:
+          - getOrderStatus
+          - analyzeText
+          - saveLongTermMemory
+          - mcp_getOrderStatus
+
     # ============================================================
     # 消费方 → Profile 映射
     # ------------------------------------------------------------
@@ -81,3 +113,7 @@ app:
       planner-service: plan-execute         # PlannerService.buildToolCatalog()
       step-executor: plan-execute           # StepExecutor.doExecute()
       plan-validator: plan-execute          # PlanValidator.validate()
+      # D73：Worker Agent 消费方
+      worker-financial: worker-financial
+      worker-technical: worker-technical
+      worker-legal: worker-legal

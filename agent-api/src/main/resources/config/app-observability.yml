@@ -1,18 +1,53 @@
 # ============================================================
-# 日志与监控配置
+# 可观测性配置（D77：Micrometer Tracing + Zipkin）
 # ------------------------------------------------------------
-# ⚠️ TRACE 级会输出海量内容——生产环境建议降到 DEBUG 或 WARN
+# 与 app-logging.yml 分离：
+#   - app-logging.yml     → 日志级别
+#   - app-observability.yml → 链路追踪
 # ============================================================
 
-logging:
-  level:
-    # HTTP 请求详细日志——排查外部调用时用
-    org.springframework.web.client: TRACE
-    org.springframework.web.client.DefaultRestClient: TRACE
-    org.springframework.http.client: TRACE
-    # Spring AI 调用日志——排查 prompt/response 时用
-    org.springframework.ai.openai: DEBUG
-    # MyBatis SQL 日志——排查 SQL 时用
-    org.mybatis: DEBUG
-    org.mybatis.spring: DEBUG
-    org.apache.ibatis: DEBUG
+management:
+  # ---------- Tracing 采样率 ----------
+  tracing:
+    # 默认 0.1（生产建议）——dev profile 覆盖为 1.0
+    sampling:
+      probability: 0.1
+
+  # ---------- Zipkin 上报端点 ----------
+  zipkin:
+    tracing:
+      endpoint: https://www.ahshequ.cn/zipkin/api/v2/spans
+
+  # ---------- Actuator 端点 ----------
+  endpoints:
+    web:
+      exposure:
+        # 把 metrics / health / refresh 都暴露出来
+        include: health,metrics,refresh
+
+  # ---------- 指标标签 ----------
+  metrics:
+    tags:
+      # 所有指标带上 application 标签——多实例部署时区分来源
+      application: ${spring.application.name:agent-api}
+    distribution:
+      # 打开 HTTP / LLM 调用的延迟直方图（P50/P95/P99）
+      percentiles-histogram:
+        http.server.requests: true
+        spring.ai.chat.client: true
+
+# ---------- 应用名（Zipkin UI 里显示） ----------
+spring:
+  application:
+    name: agent-api
+
+# ---------- dev profile 覆盖采样率 ----------
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+management:
+  tracing:
+    sampling:
+      probability: 1.0   # 开发环境 100% 采样

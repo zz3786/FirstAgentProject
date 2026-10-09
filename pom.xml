@@ -24,8 +24,12 @@
         <module>agent-memory</module>
         <module>agent-rag</module>
         <module>agent-core</module>
+        <module>agent-observability</module>
+        <module>agent-multi-agent</module>
         <module>agent-api</module>
         <module>agent-mcp-server</module>
+
+
     </modules>
 
     <properties>
@@ -34,6 +38,8 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-ai.version>1.1.8</spring-ai.version>
+        <micrometer-tracing.version>1.4.1</micrometer-tracing.version>
+        <zipkin-reporter.version>3.4.3</zipkin-reporter.version>
     </properties>
 
     <!-- 新增：配置 Spring 里程碑仓库 -->
@@ -95,6 +101,16 @@
             <dependency>
                 <groupId>org.example</groupId>
                 <artifactId>agent-cache</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.example</groupId>
+                <artifactId>agent-observability</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.example</groupId>
+                <artifactId>agent-multi-agent</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

@@ -22,15 +22,23 @@
             <groupId>org.example</groupId>
             <artifactId>agent-common</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.example</groupId>
             <artifactId>agent-core</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.example</groupId>
             <artifactId>agent-rag</artifactId>
+        </dependency>
+        <!-- ============ D71-D77 多智能体协作 ============ -->
+        <dependency>
+            <groupId>org.example</groupId>
+            <artifactId>agent-multi-agent</artifactId>
+        </dependency>
+        <!-- ============ D77 全链路可观测 ============ -->
+        <dependency>
+            <groupId>org.example</groupId>
+            <artifactId>agent-observability</artifactId>
         </dependency>
 
         <dependency>
