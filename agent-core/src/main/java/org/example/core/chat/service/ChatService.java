@@ -270,8 +270,13 @@ public class ChatService implements ToolRefreshListener {
         // ★ D53：构造过滤维度 Map
         Map<String, Object> filterDims = buildFilterDims(effectiveFilter);
 
-        // ① 语义缓存查询
-        String cachedAnswer = semanticCacheService.lookup(userInput, fullUserId, filterDims);
+        // ① 语义缓存查询（★ 含 ID 类 token 的 query 跳过——避免"订单 1001"命中"订单 2001"）
+        String cachedAnswer = null;
+        if (!shouldBypassSemanticCache(userInput)) {
+            cachedAnswer = semanticCacheService.lookup(userInput, fullUserId, filterDims);
+        } else {
+            log.debug("[缓存] query 含 ID 类 token，跳过语义缓存: [{}]",TextUtils.truncate(userInput, 30));
+        }
         if (cachedAnswer != null) {
             log.info("✅ [缓存命中] query=[{}]", TextUtils.truncate(userInput, 30));
             return Flux.just(cachedAnswer);
@@ -331,7 +336,8 @@ public class ChatService implements ToolRefreshListener {
                             TextUtils.truncate(userInput, 30), totalCost);
 
                     String answer = fullAnswer.toString();
-                    if (!answer.isBlank()) {
+                    // ★ 同样跳过 store——不要往缓存里塞含 ID 的 query
+                    if (!answer.isBlank() && !shouldBypassSemanticCache(userInput)) {
                         semanticCacheService.store(userInput, answer, fullUserId, filterDims);
                     }
                 })
@@ -362,6 +368,53 @@ public class ChatService implements ToolRefreshListener {
             return 1;
         }
         return filter.securityLevelMax();
+    }
+
+    /**
+     * 判断是否应跳过语义缓存（D69 补丁）
+     *
+     * <h3>为什么需要这个方法</h3>
+     * <p>
+     * 语义缓存基于 EmbeddingModel 的余弦相似度——
+     * "查一下订单 1001 的状态" 和 "查一下订单 2001 的状态" 相似度 &gt; 0.95，
+     * 会被误判为"同一个问题"。但它们的答案完全不同。
+     *
+     * <p>这类 query 的特征：<b>句式相同，只有 ID/数字不同</b>。
+     * 语义相似度对它们失效——必须跳过缓存，走真实检索。
+     *
+     * <h3>识别规则</h3>
+     * <ul>
+     *   <li>含 4 位以上连续数字 → 疑似 ID（订单号、合同号、手机号）</li>
+     *   <li>含 UUID 格式（8-4-4-4-12） → 疑似文档 ID</li>
+     * </ul>
+     *
+     * <h3>误判的影响</h3>
+     * <p>
+     * 即使误判（本来是普通问题却被识别成含 ID），
+     * 也只是"这条 query 不走缓存"——不会有正确性问题，只是性能略差。
+     * 所以规则可以宽松些——<b>宁可多跳一次缓存，不要错误命中</b>。
+     *
+     * <h3>更彻底的方案</h3>
+     * <p>
+     * 生产环境建议改为"参数化模板缓存"——
+     * 把 query 里的 ID 剥离后作为模板 key，ID 值作为参数存储。
+     * 例：{@code "查订单{id}状态"} → {@code {1001: "已发货", 2001: "待收货"}}。
+     * 那样句式相同的查询能命中模板，ID 不同也不冲突。
+     * 这是后续演进方向，当前先用"跳过"解决正确性问题。
+     */
+    private boolean shouldBypassSemanticCache(String query) {
+        if (query == null || query.isBlank()) {
+            return false;
+        }
+        // ① 含 4 位以上连续数字 → 疑似 ID
+        if (query.matches(".*\\d{4,}.*")) {
+            return true;
+        }
+        // ② 含 UUID 格式
+        if (query.matches(".*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}.*")) {
+            return true;
+        }
+        return false;
     }
 
     // ==================== 清空记忆 ====================

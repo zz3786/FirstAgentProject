@@ -161,4 +161,38 @@ public final class AuditLogger {
         }
         return sb.toString();
     }
+
+
+    // ==================== 工具鉴权（D69）====================
+
+    /**
+     * 工具鉴权拒绝——记录越权尝试
+     *
+     * <h3>为什么用 WARN 级别</h3>
+     * <p>
+     * 越权尝试是安全事件——即使最终没有造成损害，
+     * 也应该被安全审计系统捕捉，用于：
+     * <ul>
+     *   <li>事后追查——"是谁在什么时候试图调用什么工具"</li>
+     *   <li>实时告警——配合日志监控系统（如 ELK / Loki）触发告警</li>
+     *   <li>行为分析——发现可疑用户（多次尝试不同敏感工具）</li>
+     * </ul>
+     *
+     * <h3>日志格式</h3>
+     * <pre>
+     * [AUDIT][AUTHZ_DENY] scope=TOOL, tool=riskyOperation, userId=hospital-a:user-alice,
+     *                     reason=工具 [riskyOperation] 要求最低密级 4，当前用户密级 2
+     * </pre>
+     * <p>结构化字段——便于 ELK/Loki 解析和聚合。
+     *
+     * @param scope      拒绝层次——"TOOL"（工具级）或 "PARAM"（参数级）
+     * @param toolName   工具名
+     * @param fullUserId 完整用户 ID（tenantId:userId）
+     * @param reason     拒绝原因——由授权器生成
+     */
+    public static void authzDeny(String scope, String toolName,
+                                 String fullUserId, String reason) {
+        log.warn("[AUDIT][AUTHZ_DENY] scope={}, tool={}, userId={}, reason={}",
+                scope, toolName, fullUserId, reason);
+    }
 }

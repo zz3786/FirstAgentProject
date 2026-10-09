@@ -2,35 +2,33 @@
 # RBAC 权限配置（D69）
 # ------------------------------------------------------------
 # 密级含义：1=公开  2=内部  3=秘密  4=机密
-# 规则：用户密级 >= 工具要求密级 → 允许；否则拒绝。
-# 未列出的工具 → 默认密级 1（所有人可调）。
 # ============================================================
 
 app:
   rbac:
+    # 总开关
     enabled: true
 
+    # ───────────── D69 第二轮：参数级校验 ─────────────
+    # 校验"调工具时能不能传这个参数"——如订单归属、租户隔离
+    param-validation:
+      enabled: true
+
+    # ───────────── D69 第一轮：工具级校验 ─────────────
     tool-requirements:
       riskyOperation:
         min-security-level: 4
-
       saveLongTermMemory:
         min-security-level: 2
-
       savePreference:
         min-security-level: 2
-
       saveRetrievalPreference:
         min-security-level: 2
-
       recordInterest:
         min-security-level: 2
-
       getOrderStatus:
         min-security-level: 2
-
       mcp_getOrderStatus:
         min-security-level: 2
-
       createTodo:
         min-security-level: 2

@@ -2,6 +2,7 @@ package org.example.core.rbac.config;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.core.rbac.ToolAuthorizer;
+import org.example.core.rbac.impl.ParamOwnershipValidator;
 import org.example.core.rbac.impl.RbacToolAuthorizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,8 +15,8 @@ import org.springframework.context.annotation.Configuration;
 public class RbacBeanConfig {
 
     @Bean
-    public ToolAuthorizer toolAuthorizer(RbacProperties properties) {
+    public ToolAuthorizer toolAuthorizer(RbacProperties properties,ParamOwnershipValidator paramValidator) {
         log.info("[D69] 装配 ToolAuthorizer（RbacToolAuthorizer）");
-        return new RbacToolAuthorizer(properties);
+        return new RbacToolAuthorizer(properties, paramValidator);
     }
 }

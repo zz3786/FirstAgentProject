@@ -97,6 +97,16 @@
                 <artifactId>agent-cache</artifactId>
                 <version>${project.version}</version>
             </dependency>
+
+            <!-- 导入 Spring Cloud BOM -->
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>2025.0.1</version> <!-- 与 Spring Boot 3.5.x 兼容的版本 -->
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 

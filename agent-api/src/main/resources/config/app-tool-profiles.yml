@@ -38,7 +38,7 @@ app:
           - LOCAL
           - MCP
         exclude-tools:
-          - riskyOperation        # 危险操作不该被 ReAct 主动触发
+       #   - riskyOperation        # 危险操作不该被 ReAct 主动触发
           - saveLongTermMemory    # 记忆写入不该由 ReAct 直接管
 
       # ─────────── 场景 2：Plan-and-Execute ───────────
