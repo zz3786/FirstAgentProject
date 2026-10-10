@@ -1,0 +1,50 @@
+# Powershell执行
+
+$outputFile = "full-project-code.txt"
+$rootPath = (Get-Location).Path
+
+# 用 StringBuilder 在内存里拼接
+$sb = New-Object System.Text.StringBuilder
+function Add-Line([string]$content) { [void]$sb.AppendLine($content) }
+
+# 1. 头部
+Add-Line "=== 项目源码合集 ==="
+Add-Line "项目类型：Maven 多模块 Spring Boot 项目"
+Add-Line "技术栈：Spring Boot + MyBatis + MySQL + Redis"
+Add-Line "以下按文件路径完整列出源码，每个文件以【=== 文件：路径 ===】开头"
+Add-Line ""
+
+# 2. pom.xml
+Get-ChildItem -Path . -Recurse -Filter "pom.xml" | ForEach-Object {
+    $relative = $_.FullName.Substring($rootPath.Length).TrimStart("\")
+    Add-Line "=== 文件：$relative ==="
+    $content = Get-Content $_.FullName -Encoding UTF8 -Raw   # -Raw 一次读整个文件，避免逐行
+    Add-Line $content
+    Add-Line ""
+}
+
+# 3. Java 源码
+Get-ChildItem -Path . -Recurse -Filter "*.java" | Where-Object {
+    $_.FullName -notmatch "\\target\\" -and $_.FullName -notmatch "\\build\\"
+} | ForEach-Object {
+    $relative = $_.FullName.Substring($rootPath.Length).TrimStart("\")
+    Add-Line "=== 文件：$relative ==="
+    $content = Get-Content $_.FullName -Encoding UTF8 -Raw
+    Add-Line $content
+    Add-Line ""
+}
+
+# 4. 配置文件
+Get-ChildItem -Path . -Recurse -Include "*.yml","*.yaml","*.properties" | Where-Object {
+    $_.FullName -match "\\resources\\" -and $_.FullName -notmatch "\\target\\"
+} | ForEach-Object {
+    $relative = $_.FullName.Substring($rootPath.Length).TrimStart("\")
+    Add-Line "=== 文件：$relative ==="
+    $content = Get-Content $_.FullName -Encoding UTF8 -Raw
+    Add-Line $content
+    Add-Line ""
+}
+
+# 一次性写入（UTF-8）
+[System.IO.File]::WriteAllText((Join-Path $rootPath $outputFile), $sb.ToString(), [System.Text.Encoding]::UTF8)
+Write-Host "合并完成，输出文件：$outputFile"

@@ -17,9 +17,9 @@ app:
       # 拆解出的最大子任务数（防止模型拆出 20 个子任务）
       max-subtasks: 6
       # 单子任务最大执行时长（毫秒）
-      per-subtask-timeout-ms: 60000
+      per-subtask-timeout-ms: 150000
       # 整体最大执行时长（毫秒）
-      total-timeout-ms: 180000
+      total-timeout-ms: 300000
 
     # ---------- 自我反思 ----------
     reflection:
@@ -75,9 +75,14 @@ app:
       # 每个角色有独立的 task 队列
       # 消费失败 N 次后进入 DLQ
       queues:
+        # ★ D74 修复：主管队列——用于接收 RESULT/ERROR 回执
+        #   主管发 TASK 后，Worker 的回执走 agent.supervisor.result
+        #   如果没有这个配置，回执消息会被 Exchange 丢弃 → sendAndWait 超时
         supervisor:
-          task-queue: agent.supervisor.task.q
+          # 主管不接收 TASK——task-queue 留空
+          task-queue: ""
           result-queue: agent.supervisor.result.q
+
         financial:
           task-queue: agent.financial.task.q
           result-queue: agent.financial.result.q
@@ -166,3 +171,24 @@ app:
         2. 提示潜在风险等级（高/中/低）
         3. 对不确定的法律问题，建议咨询执业律师
         4. 不做超出法务专业范围的判断
+        
+
+# ============================================================
+# RabbitMQ 连接配置（Spring Boot 标准前缀）
+# ============================================================
+spring:
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:fap}
+    password: ${RABBITMQ_PASSWORD:fap123456}
+    virtual-host: ${RABBITMQ_VHOST:/fap}
+    # Publisher Confirm——保证消息到达 Broker
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    # 自动声明拓扑——由 RabbitTopologyConfig 主动声明，这里关掉隐式声明
+    listener:
+      simple:
+        acknowledge-mode: auto
+        retry:
+          enabled: false   # 我们不用 Spring 的自动重试——靠 DLX
