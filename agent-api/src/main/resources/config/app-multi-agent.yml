@@ -20,6 +20,10 @@ app:
       per-subtask-timeout-ms: 150000
       # 整体最大执行时长（毫秒）
       total-timeout-ms: 300000
+      # ★ D74 融合开关：子任务是否通过 RabbitMQ 分发
+      # false（默认）= 同步直调 Worker —— 单进程部署时性能最优
+      # true         = 走 MQ 消息 —— 支持跨进程部署 / 消息持久化
+      via-mq: false
 
     # ---------- 自我反思 ----------
     reflection:

@@ -65,6 +65,33 @@ public class MultiAgentProperties {
 
         /** 整体最大执行时长（毫秒）——超过则中止所有未完成子任务 */
         private long totalTimeoutMs = 180_000L;
+
+        /**
+         * 是否通过 RabbitMQ 分发子任务（D74 融合开关）
+         *
+         * <h3>两种模式的 trade-off</h3>
+         * <table>
+         *   <tr><th>维度</th><th>false（同步直调）</th><th>true（走 MQ）</th></tr>
+         *   <tr><td>延迟</td><td>~0ms（内存调用）</td><td>+10~50ms（序列化+往返）</td></tr>
+         *   <tr><td>跨进程</td><td>不支持</td><td>支持</td></tr>
+         *   <tr><td>可靠性</td><td>JVM 崩溃即失败</td><td>MQ 持久化 + DLQ</td></tr>
+         *   <tr><td>可观测</td><td>仅本地日志</td><td>MQ 管理台 + Trace</td></tr>
+         *   <tr><td>复杂度</td><td>低</td><td>需要 MQ 实例 + 拓扑维护</td></tr>
+         * </table>
+         *
+         * <h3>默认值选择</h3>
+         * <p>
+         * false 的理由：<b>单进程部署时走 MQ 是纯负担</b>——
+         * 序列化和网络往返的代价换不来任何收益（Worker 就在同一个 JVM）。
+         * <p>
+         * 生产要打开 true 的场景：
+         * <ul>
+         *   <li>Worker 独立部署（多进程 / 多实例）</li>
+         *   <li>需要"消息持久化 + 断点续传"</li>
+         *   <li>需要"Mq 管理台可视化"运维</li>
+         * </ul>
+         */
+        private boolean viaMq = false;
     }
 
     /**
