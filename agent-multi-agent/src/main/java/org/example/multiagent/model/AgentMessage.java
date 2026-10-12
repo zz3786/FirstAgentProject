@@ -102,20 +102,32 @@ public record AgentMessage(
     // ==================== 静态工厂 ====================
 
     /**
-     * 构造 TASK 消息——主管 → Worker
+     * 构造 TASK 消息——主管 → Worker（带 metadata）
+     *
+     * <h3>为什么需要这个重载</h3>
+     * <p>
+     * TASK 消息必须携带原始请求的 metadata——特别是 {@code securityLevel}。
+     * 消费侧（{@code AgentMessageConsumer} → {@code WorkerAgent}）会用
+     * 它做 RBAC 鉴权。
+     * <p>
+     * 把 metadata 直接作为工厂方法参数——比在调用侧用 {@code withMetadata()}
+     * 逐个追加更直接，也不依赖 {@code AgentRequest} 的重载是否存在。
+     *
+     * @param metadata 消息 metadata（含 securityLevel 等上下文）——null 时用空 Map
      */
     public static AgentMessage task(String fromRole,
                                     String toRole,
                                     String requestId,
                                     String fullUserId,
                                     String input,
-                                    String correlationId) {
+                                    String correlationId,
+                                    Map<String, Object> metadata) {
         return new AgentMessage(
                 null, correlationId, MessageType.TASK,
                 fromRole, toRole, requestId, fullUserId,
                 input, null,
                 0L, 0, -1.0,
-                Map.of(), 0L);
+                metadata == null ? Map.of() : metadata, 0L);
     }
 
     /**

@@ -1,15 +1,21 @@
 package org.example.multiagent.supervisor;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.multiagent.bus.AgentMessageBus;
+import org.example.multiagent.bus.AgentMessageConverter;
 import org.example.multiagent.config.MultiAgentProperties;
+import org.example.multiagent.model.AgentMessage;
 import org.example.multiagent.model.AgentRequest;
 import org.example.multiagent.model.AgentResponse;
+import org.example.multiagent.model.AgentRole;
 import org.example.multiagent.model.SubTask;
 import org.example.multiagent.model.TaskGraph;
 import org.example.multiagent.worker.WorkerAgent;
 import org.example.multiagent.worker.WorkerAgentRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -20,38 +26,35 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 任务分发器（D72）
+ * 任务分发器（D72 首版，D74 融合 MQ 通道）
  *
- * <h3>职责</h3>
- * <p>
- * 接收 {@link TaskGraph}，把每个子任务分发给对应的 Worker，
- * <b>并行执行</b>，收集所有 {@link AgentResponse}。
+ * <h3>两种分发通道</h3>
+ * <pre>
+ *   viaMq=false（默认）：直接方法调用
+ *      dispatchOne → worker.execute(subRequest) → 返回
  *
- * <h3>并行策略</h3>
- * <p>
- * 用 Java 21 虚拟线程执行——IO 密集场景（LLM 调用）的天然选择。
- * 子任务之间无依赖，可以全并行。
+ *   viaMq=true：走 RabbitMQ
+ *      dispatchOne → bus.sendAndWait(task, timeout)
+ *                        ↓
+ *                  Worker 侧 Consumer 收到 → 执行 → 发 RESULT
+ *                        ↓
+ *                  ResultCorrelationListener 完成 Future
+ *                        ↓
+ *                  返回 → 转 AgentResponse
+ * </pre>
  *
- * <h3>超时控制</h3>
- * <ul>
- *   <li>单子任务：{@code props.supervisor.perSubtaskTimeoutMs}（默认 60s）</li>
- *   <li>整体：{@code props.supervisor.totalTimeoutMs}（默认 180s）</li>
- * </ul>
- * 单子任务超时→该 Worker 返回 fail 响应，不影响其他；
- * 整体超时→所有未完成的被取消。
+ * <h3>为什么默认直调</h3>
+ * <p>
+ * 单进程部署时 MQ 只带来负担——序列化 + 网络往返 ~10-50ms，
+ * 换来 0 收益（Worker 就在同 JVM）。
+ * <p>
+ * 只有 Worker 独立部署时才值得打开。见 {@code MultiAgentProperties.Supervisor.viaMq}。
  *
- * <h3>为什么用 CompletableFuture 而不是 ParallelExecutor</h3>
+ * <h3>ObjectProvider 的必要性</h3>
  * <p>
- * 项目里的 {@code ParallelExecutor} 是给"工作流内的数据拉取"用的——
- * 有 {@code ParallelTask} 类型、有 critical/fallback 概念。
- * Supervisor 的子任务是"Agent 调用"，语义不同，强行复用会让两边都变复杂。
- * <p>
- * 且 D74 会把这个类改成"发 RabbitMQ 消息"——届时并行机制完全变样。
- * 现在自己写 CompletableFuture 更清晰。
- *
- * <h3>异常隔离</h3>
- * <p>
- * 单个 Worker 抛异常 → 捕获后转为 fail 响应。一个失败不影响其他。
+ * {@code AgentMessageBus} 在 {@code app.agent-bus.rabbit.enabled=false} 时
+ * 不会注册 RabbitMQ 实现——但 InMemoryAgentMessageBus 会作为兜底存在。
+ * 用 {@code ObjectProvider} 注入保持宽松——即使 Bus 完全缺失（理论上不会）也不阻断启动。
  */
 @Slf4j
 @Component
@@ -59,23 +62,23 @@ public class TaskDispatcher {
 
     private final WorkerAgentRegistry registry;
     private final MultiAgentProperties props;
+    private final ObjectProvider<AgentMessageBus> busProvider;
+    private final AgentMessageConverter messageConverter;
     private final ExecutorService virtualThreadExecutor;
 
     public TaskDispatcher(WorkerAgentRegistry registry,
-                          MultiAgentProperties props) {
+                          MultiAgentProperties props,
+                          ObjectProvider<AgentMessageBus> busProvider,
+                          AgentMessageConverter messageConverter) {
         this.registry = registry;
         this.props = props;
-        // Java 21 虚拟线程——每个子任务一个虚拟线程，不池化
+        this.busProvider = busProvider;
+        this.messageConverter = messageConverter;
         this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
 
-    /**
-     * 分发所有子任务
-     *
-     * @param graph        任务图
-     * @param parentRequest 上游请求（携带 fullUserId 等上下文）
-     * @return 所有 Worker 的响应（按子任务 id 排序）；无子任务时返回空列表
-     */
+    // ==================== 主入口 ====================
+
     public List<AgentResponse> dispatch(TaskGraph graph, AgentRequest parentRequest) {
         if (graph == null || graph.isEmpty()) {
             return List.of();
@@ -84,23 +87,25 @@ public class TaskDispatcher {
         long start = System.currentTimeMillis();
         long totalTimeoutMs = props.getSupervisor().getTotalTimeoutMs();
         long perSubtaskTimeoutMs = props.getSupervisor().getPerSubtaskTimeoutMs();
+        boolean viaMq = props.getSupervisor().isViaMq();
 
-        log.info("[TaskDispatcher] 开始分发 {} 个子任务", graph.size());
+        log.info("[TaskDispatcher] 开始分发 {} 个子任务（通道={}）",
+                graph.size(), viaMq ? "RabbitMQ" : "直调");
 
         // ① 为每个子任务创建 CompletableFuture
         List<CompletableFuture<AgentResponse>> futures = new ArrayList<>();
         for (SubTask subtask : graph.subtasks()) {
-            futures.add(dispatchOne(subtask, parentRequest, perSubtaskTimeoutMs));
+            futures.add(dispatchOne(subtask, parentRequest, perSubtaskTimeoutMs, viaMq));
         }
 
         // ② 整体超时等待
-        CompletableFuture<Void> all = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+        CompletableFuture<Void> all = CompletableFuture.allOf(
+                futures.toArray(new CompletableFuture[0]));
 
         try {
             all.orTimeout(totalTimeoutMs, TimeUnit.MILLISECONDS).join();
         } catch (Exception e) {
             log.warn("[TaskDispatcher] 整体超时或异常: {}", e.getMessage());
-            // 继续收集已完成的结果
         }
 
         // ③ 收集结果
@@ -124,35 +129,46 @@ public class TaskDispatcher {
                     System.currentTimeMillis() - start));
         }
 
-        // ④ 按子任务 id 排序（保证顺序稳定）
+        // ④ 按子任务 id 排序
         responses.sort(Comparator.comparing(r -> {
-            // 从 metadata 中取 subtaskId（dispatchOne 里塞入）
             Object sid = r.metadata().get("subtaskId");
             return sid instanceof Number n ? n.intValue() : Integer.MAX_VALUE;
         }));
 
         long cost = System.currentTimeMillis() - start;
         long successCount = responses.stream().filter(AgentResponse::success).count();
-        log.info("[TaskDispatcher] 完成: 总数={}, 成功={}, 耗时={}ms",
-                responses.size(), successCount, cost);
+        log.info("[TaskDispatcher] 完成: 总数={}, 成功={}, 耗时={}ms（通道={}）",
+                responses.size(), successCount, cost, viaMq ? "RabbitMQ" : "直调");
 
         return responses;
     }
 
-    // ==================== 内部 ====================
+    // ==================== 单子任务分发 ====================
 
-    /**
-     * 分发单个子任务
-     */
     private CompletableFuture<AgentResponse> dispatchOne(
             SubTask subtask,
             AgentRequest parentRequest,
-            long timeoutMs) {
+            long timeoutMs,
+            boolean viaMq) {
+
+        if (viaMq) {
+            return CompletableFuture.supplyAsync(
+                    () -> dispatchViaMq(subtask, parentRequest, timeoutMs),
+                    virtualThreadExecutor);
+        }
+        return dispatchDirect(subtask, parentRequest)
+                .orTimeout(timeoutMs, TimeUnit.MILLISECONDS);
+    }
+
+    // ---------- 通道 1：同步直调 ----------
+
+    private CompletableFuture<AgentResponse> dispatchDirect(
+            SubTask subtask,
+            AgentRequest parentRequest) {
 
         return CompletableFuture.supplyAsync(() -> {
             long start = System.currentTimeMillis();
 
-            // ① 找 Worker
             Optional<WorkerAgent> workerOpt = registry.get(subtask.role());
             if (workerOpt.isEmpty()) {
                 log.warn("[TaskDispatcher] 无可用 Worker: role={}, subtaskId={}",
@@ -165,36 +181,89 @@ public class TaskDispatcher {
             }
             WorkerAgent worker = workerOpt.get();
 
-            // ② 构造子任务请求
             AgentRequest subRequest = parentRequest
                     .withInput(subtask.description())
                     .withRole(subtask.role())
                     .withMetadata("subtaskId", subtask.id())
                     .withMetadata("expectedOutput", subtask.expectedOutput());
 
-            // ③ 调用——捕获所有异常
             try {
                 AgentResponse resp = worker.execute(subRequest);
-                // 保证 metadata 带 subtaskId（worker 可能没带）
                 if (resp.metadata().get("subtaskId") == null) {
                     resp = resp.withMetadata("subtaskId", subtask.id());
                 }
 
-                // ★ D72 修订：子任务完成日志——用于诊断"哪个子任务慢"
                 long cost = System.currentTimeMillis() - start;
-                log.info("[TaskDispatcher] 子任务 {} 完成: role={}, success={}, costMs={}",
+                log.info("[TaskDispatcher] 子任务 {} 完成（直调）: role={}, success={}, costMs={}",
                         subtask.id(), subtask.role(), resp.success(), cost);
 
                 return resp;
             } catch (Exception e) {
-                log.warn("[TaskDispatcher] 子任务失败: subtaskId={}, worker={}, err={}",
-                        subtask.id(), worker.getClass().getSimpleName(), e.getMessage());
+                long cost = System.currentTimeMillis() - start;
+                log.warn("[TaskDispatcher] 子任务 {} 失败（直调）: role={}, costMs={}, err={}",
+                        subtask.id(), subtask.role(), cost, e.getMessage());
                 return AgentResponse.fail(
                                 parentRequest.requestId(), subtask.role(),
-                                "子任务执行异常: " + e.getMessage(),
-                                System.currentTimeMillis() - start)
+                                "子任务执行异常: " + e.getMessage(), cost)
                         .withMetadata("subtaskId", subtask.id());
             }
-        }, virtualThreadExecutor).orTimeout(timeoutMs, TimeUnit.MILLISECONDS);
+        }, virtualThreadExecutor);
+    }
+
+    // ---------- 通道 2：RabbitMQ ----------
+
+    private AgentResponse dispatchViaMq(
+            SubTask subtask,
+            AgentRequest parentRequest,
+            long timeoutMs) {
+
+        long start = System.currentTimeMillis();
+
+        // ① 拿 Bus——可能为 null（未装配）
+        AgentMessageBus bus = busProvider.getIfAvailable();
+        if (bus == null) {
+            log.warn("[TaskDispatcher] AgentMessageBus 未装配——降级为直调");
+            return dispatchDirect(subtask, parentRequest).join();
+        }
+        if (!bus.isAvailable()) {
+            log.warn("[TaskDispatcher] Bus 不可用——降级为直调");
+            return dispatchDirect(subtask, parentRequest).join();
+        }
+
+        // ② 构造子任务请求
+        AgentRequest subRequest = parentRequest
+                .withInput(subtask.description())
+                .withRole(subtask.role())
+                .withMetadata("subtaskId", subtask.id())
+                .withMetadata("expectedOutput", subtask.expectedOutput());
+
+        // ③ 转消息
+        AgentMessage task = messageConverter.toTaskMessage(subRequest, AgentRole.SUPERVISOR.name());
+
+        try {
+            // ④ 发消息 + 等待回执
+            AgentMessage result = bus.sendAndWait(task, Duration.ofMillis(timeoutMs));
+
+            // ⑤ 回执转 AgentResponse
+            AgentResponse resp = messageConverter.toAgentResponse(result);
+            if (resp.metadata().get("subtaskId") == null) {
+                resp = resp.withMetadata("subtaskId", subtask.id());
+            }
+
+            long cost = System.currentTimeMillis() - start;
+            log.info("[TaskDispatcher] 子任务 {} 完成（MQ）: role={}, success={}, costMs={}",
+                    subtask.id(), subtask.role(), resp.success(), cost);
+
+            return resp;
+
+        } catch (Exception e) {
+            long cost = System.currentTimeMillis() - start;
+            log.warn("[TaskDispatcher] 子任务 {} 失败（MQ）: role={}, costMs={}, err={}",
+                    subtask.id(), subtask.role(), cost, e.getMessage());
+            return AgentResponse.fail(
+                            parentRequest.requestId(), subtask.role(),
+                            "MQ 分发失败: " + e.getMessage(), cost)
+                    .withMetadata("subtaskId", subtask.id());
+        }
     }
 }

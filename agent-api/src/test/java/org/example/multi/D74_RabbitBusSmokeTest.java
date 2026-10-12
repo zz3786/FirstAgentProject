@@ -72,7 +72,8 @@ class D74_RabbitBusSmokeTest {
                 "d74-test-req-1",
                 "hospital-a:user-alice",
                 "订单 1001 的当前状态是什么？用一句话回答。",
-                "d74-correlation-" + System.currentTimeMillis());
+                "d74-correlation-" + System.currentTimeMillis(),
+                null);
 
         System.out.println("========== D74-2 发送 TASK ==========");
         System.out.println("correlationId = " + task.correlationId());
