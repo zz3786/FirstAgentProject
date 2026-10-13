@@ -141,10 +141,25 @@ public class MultiAgentProperties {
      */
     @Data
     public static class Aggregation {
-        /** 策略：CONCAT / LLM_SYNTHESIS / WEIGHTED */
+        /**
+         * 聚合策略
+         * <ul>
+         *   <li>LLM_SYNTHESIS——LLM 合成（默认，质量优先）</li>
+         *   <li>WEIGHTED_CONCAT——加权拼接（确定性、无 LLM 依赖）</li>
+         *   <li>PLAIN_CONCAT——简单拼接（降级用）</li>
+         * </ul>
+         */
         private String strategy = "LLM_SYNTHESIS";
 
         /** 每条 Worker 结果注入聚合 Prompt 的最大字符数 */
         private int maxResultChars = 2000;
+
+        /**
+         * 是否在聚合失败时自动降级到 PLAIN_CONCAT
+         * <p>
+         * 默认 true——保证"至少返回点东西"。
+         * 关闭后聚合失败会返回空结果——仅用于调试。
+         */
+        private boolean autoFallback = true;
     }
 }

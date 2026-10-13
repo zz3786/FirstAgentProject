@@ -1,6 +1,9 @@
 package org.example.multiagent.supervisor;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.multiagent.aggregation.ResultAggregator;
+import org.example.multiagent.aggregation.model.AggregationContext;
+import org.example.multiagent.aggregation.model.AggregationResult;
 import org.example.multiagent.config.MultiAgentProperties;
 import org.example.multiagent.exception.AgentException;
 import org.example.multiagent.model.AgentRequest;
@@ -67,18 +70,20 @@ public class SupervisorAgent {
     private final TaskDispatcher dispatcher;
     private final ChatClient synthesizerClient;
     private final ChatClient fallbackClient;
+    private final ResultAggregator resultAggregator;
     private final MultiAgentProperties props;
 
     public SupervisorAgent(
             TaskDecomposer decomposer,
             TaskDispatcher dispatcher,
             @Qualifier("supervisorSynthesizerClient") ChatClient synthesizerClient,
-            @Qualifier("reflectiveChatClient") ChatClient fallbackClient,
+            @Qualifier("reflectiveChatClient") ChatClient fallbackClient, ResultAggregator resultAggregator,
             MultiAgentProperties props) {
         this.decomposer = decomposer;
         this.dispatcher = dispatcher;
         this.synthesizerClient = synthesizerClient;
         this.fallbackClient = fallbackClient;
+        this.resultAggregator = resultAggregator;
         this.props = props;
     }
 
@@ -112,14 +117,14 @@ public class SupervisorAgent {
             return fallbackSingleAgent(request, start);
         }
 
-        // ③ 汇总
-        String finalAnswer;
-        try {
-            finalAnswer = synthesize(graph.goal(), workerResponses);
-        } catch (Exception e) {
-            log.warn("[Supervisor] 汇总失败，降级为原始拼接: {}", e.getMessage());
-            finalAnswer = fallbackSynthesize(workerResponses);
-        }
+        // ③ 汇总——D75 改为走 ResultAggregator 策略
+        AggregationContext aggCtx = new AggregationContext(
+                graph.goal(), request, workerResponses);
+        AggregationResult aggResult = resultAggregator.aggregate(aggCtx);
+        String finalAnswer = aggResult.finalAnswer();
+
+        log.info("[Supervisor] 聚合完成: strategy={}, success={}, costMs={}",
+                aggResult.strategyName(), aggResult.success(), aggResult.costMs());
 
         long cost = System.currentTimeMillis() - start;
         log.info("[Supervisor] 完成: goal=[{}], 子任务={}, 成功={}, 耗时={}ms",
@@ -131,47 +136,9 @@ public class SupervisorAgent {
                 request.requestId(), graph, workerResponses, finalAnswer, cost);
     }
 
-    // ==================== 汇总 ====================
 
     /**
-     * 汇总多个 Worker 的结果为一个连贯答案
-     */
-    private String synthesize(String goal, List<AgentResponse> responses) {
-        // 构造"专家意见清单"
-        String opinions = buildOpinionsText(responses);
-
-        String prompt = """
-                ================ 场景 ================
-                你是一位主管，刚刚收到了多位领域专家对同一问题的独立分析。
-                你的任务是【整合】这些意见，给用户一个<b>连贯、完整</b>的答复。
-                
-                ================ 原始目标 ================
-                %s
-                
-                ================ 专家意见 ================
-                %s
-                
-                ================ 整合要求 ================
-                1. 【不要罗列】不要写"财务专家说...，技术专家说..."
-                   ——而是把观点融合成一段连贯的话
-                2. 【保留分歧】如果专家意见有冲突，说明"存在不同看法"，并列出
-                3. 【说明缺失】如果某个视角的专家没有给出有效答案，明确说明
-                   "该视角暂未覆盖"——不要让用户误以为答案完整
-                4. 【结构清晰】适当使用列表、加粗等 markdown 增强可读性
-                5. 【不超过 800 字】——用户要的是"结论"，不是"论文"
-                
-                ================ 现在开始整合 ================
-                """.formatted(goal, opinions);
-
-        String result = synthesizerClient.prompt().user(prompt).call().content();
-        if (result == null || result.isBlank()) {
-            log.warn("[Supervisor] 汇总返回空，使用降级拼接");
-            return fallbackSynthesize(responses);
-        }
-        return result;
-    }
-
-    /**
+     * todo 要不要删除
      * 构造"专家意见清单"
      * <p>
      * 每个 Worker 结果一段，带角色标识。失败的结果也列出（标记"未成功"）——
@@ -188,24 +155,6 @@ public class SupervisorAgent {
                 sb.append(truncate(resp.output(), MAX_WORKER_RESULT_CHARS)).append("\n\n");
             } else {
                 sb.append("（未成功：").append(resp.error()).append("）\n\n");
-            }
-        }
-        return sb.toString();
-    }
-
-    /**
-     * 降级汇总——直接拼接所有成功的 Worker 结果
-     */
-    private String fallbackSynthesize(List<AgentResponse> responses) {
-        StringBuilder sb = new StringBuilder("综合意见：\n\n");
-        for (AgentResponse resp : responses) {
-            if (resp.success()) {
-                sb.append("【").append(resp.role().getDisplayName()).append("】\n")
-                        .append(truncate(resp.output(), MAX_WORKER_RESULT_CHARS))
-                        .append("\n\n");
-            } else {
-                sb.append("【").append(resp.role().getDisplayName()).append("】\n")
-                        .append("（该视角未成功回答）\n\n");
             }
         }
         return sb.toString();
