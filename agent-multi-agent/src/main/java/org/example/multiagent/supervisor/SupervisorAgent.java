@@ -68,10 +68,8 @@ public class SupervisorAgent {
 
     private final TaskDecomposer decomposer;
     private final TaskDispatcher dispatcher;
-    private final ChatClient synthesizerClient;
     private final ChatClient fallbackClient;
     private final ResultAggregator resultAggregator;
-    private final MultiAgentProperties props;
 
     public SupervisorAgent(
             TaskDecomposer decomposer,
@@ -81,10 +79,8 @@ public class SupervisorAgent {
             MultiAgentProperties props) {
         this.decomposer = decomposer;
         this.dispatcher = dispatcher;
-        this.synthesizerClient = synthesizerClient;
         this.fallbackClient = fallbackClient;
         this.resultAggregator = resultAggregator;
-        this.props = props;
     }
 
     /**
@@ -118,8 +114,7 @@ public class SupervisorAgent {
         }
 
         // ③ 汇总——D75 改为走 ResultAggregator 策略
-        AggregationContext aggCtx = new AggregationContext(
-                graph.goal(), request, workerResponses);
+        AggregationContext aggCtx = new AggregationContext(graph.goal(), request, workerResponses);
         AggregationResult aggResult = resultAggregator.aggregate(aggCtx);
         String finalAnswer = aggResult.finalAnswer();
 
