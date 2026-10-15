@@ -129,11 +129,30 @@ public class MultiAgentProperties {
      */
     @Data
     public static class Conflict {
-        /** 策略：MAJORITY_VOTE / ARBITER */
-        private String strategy = "MAJORITY_VOTE";
+        /**
+         * 冲突解决策略
+         * <ul>
+         *   <li>{@code MAJORITY_VOTE}——投票，无需 LLM</li>
+         *   <li>{@code ARBITER}——仲裁者 LLM 裁决</li>
+         * </ul>
+         */
+        private String strategy = "ARBITER";
 
-        /** 仲裁者角色（strategy=ARBITER 时使用） */
-        private String arbiterRole = "SUPERVISOR";
+        /**
+         * 是否启用冲突检测
+         * <p>
+         * 关闭后不检测冲突——即使存在也按原样聚合。
+         * 用于调试或"追求最低延迟"场景。
+         */
+        private boolean detectionEnabled = true;
+
+        /**
+         * 是否在无冲突时也走 Resolver
+         * <p>
+         * 默认 false——无冲突不浪费 LLM 调用。
+         * 打开后 Resolver 会被调用（即使 hasConflict=false）——主要用于调试。
+         */
+        private boolean alwaysResolve = false;
     }
 
     /**

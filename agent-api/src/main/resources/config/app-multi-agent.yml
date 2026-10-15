@@ -34,12 +34,18 @@ app:
       # 反思触发的最低质量阈值（0~1，低于则触发反思）
       quality-threshold: 0.7
 
-    # ---------- 冲突处理（D76） ----------
+      # ---------- 冲突处理（D76） ----------
     conflict:
-      # 冲突解决策略：MAJORITY_VOTE / ARBITER
-      strategy: MAJORITY_VOTE
-      # 仲裁者 Agent 的角色（strategy=ARBITER 时使用）
-      arbiter-role: SUPERVISOR
+      # 策略：
+      #   MAJORITY_VOTE = 投票（无 LLM 调用，快但可能平票）
+      #   ARBITER       = 仲裁者（1 次 LLM 调用，能处理复杂情况）
+      strategy: ARBITER
+
+      # 是否启用冲突检测
+      detection-enabled: true
+
+      # 是否总是走 Resolver（即使无冲突）——调试用
+      always-resolve: false
 
     # ---------- 结果聚合（D75） ----------
     aggregation:

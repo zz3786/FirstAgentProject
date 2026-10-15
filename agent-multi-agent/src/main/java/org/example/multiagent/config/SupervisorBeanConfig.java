@@ -94,4 +94,24 @@ public class SupervisorBeanConfig {
                 .defaultSystem("你是一位可靠的专业助手。")
                 .build();
     }
+
+    /**
+     * 冲突检测器专用 Client（D76）
+     */
+    @Bean("conflictDetectorClient")
+    public ChatClient conflictDetectorClient(OpenAiChatModel chatModel) {
+        return ChatClient.builder(chatModel)
+                .defaultSystem("你是一位客观、严谨的意见冲突分析专家。")
+                .build();
+    }
+
+    /**
+     * 仲裁者专用 Client（D76）
+     */
+    @Bean("conflictArbiterClient")
+    public ChatClient conflictArbiterClient(OpenAiChatModel chatModel) {
+        return ChatClient.builder(chatModel)
+                .defaultSystem("你是一位经验丰富、决断力强的仲裁者。")
+                .build();
+    }
 }

@@ -5,6 +5,8 @@ import org.example.multiagent.aggregation.ResultAggregator;
 import org.example.multiagent.aggregation.model.AggregationContext;
 import org.example.multiagent.aggregation.model.AggregationResult;
 import org.example.multiagent.config.MultiAgentProperties;
+import org.example.multiagent.conflict.ConflictHandler;
+import org.example.multiagent.conflict.model.ConflictResolution;
 import org.example.multiagent.exception.AgentException;
 import org.example.multiagent.model.AgentRequest;
 import org.example.multiagent.model.AgentResponse;
@@ -70,17 +72,23 @@ public class SupervisorAgent {
     private final TaskDispatcher dispatcher;
     private final ChatClient fallbackClient;
     private final ResultAggregator resultAggregator;
+    private final ConflictHandler conflictHandler;
+    private final MultiAgentProperties props;
 
     public SupervisorAgent(
             TaskDecomposer decomposer,
             TaskDispatcher dispatcher,
             @Qualifier("supervisorSynthesizerClient") ChatClient synthesizerClient,
-            @Qualifier("reflectiveChatClient") ChatClient fallbackClient, ResultAggregator resultAggregator,
+            @Qualifier("reflectiveChatClient") ChatClient fallbackClient,
+            ResultAggregator resultAggregator,
+            ConflictHandler conflictHandler,
             MultiAgentProperties props) {
         this.decomposer = decomposer;
         this.dispatcher = dispatcher;
         this.fallbackClient = fallbackClient;
         this.resultAggregator = resultAggregator;
+        this.conflictHandler = conflictHandler;
+        this.props = props;
     }
 
     /**
@@ -113,13 +121,22 @@ public class SupervisorAgent {
             return fallbackSingleAgent(request, start);
         }
 
-        // ③ 汇总——D75 改为走 ResultAggregator 策略
-        AggregationContext aggCtx = new AggregationContext(graph.goal(), request, workerResponses);
+        // ③ 冲突处理（D76 新增）
+        ConflictResolution conflictResolution = ConflictResolution.noConflict();
+        if (props.getConflict().isDetectionEnabled()) {
+            conflictResolution = conflictHandler.handle(graph.goal(), request, workerResponses);
+        } else {
+            log.debug("[Supervisor] 冲突检测已关闭");
+        }
+
+        // ④ 汇总——D75 走 ResultAggregator 策略 + D76 注入冲突决议
+        AggregationContext aggCtx = new AggregationContext(graph.goal(), request, workerResponses, conflictResolution);
         AggregationResult aggResult = resultAggregator.aggregate(aggCtx);
         String finalAnswer = aggResult.finalAnswer();
 
-        log.info("[Supervisor] 聚合完成: strategy={}, success={}, costMs={}",
-                aggResult.strategyName(), aggResult.success(), aggResult.costMs());
+        log.info("[Supervisor] 聚合完成: strategy={}, success={}, costMs={}, conflict={}",
+                aggResult.strategyName(), aggResult.success(), aggResult.costMs(),
+                conflictResolution.hasConflict() ? "已处理(" + conflictResolution.strategyName() + ")" : "无");
 
         long cost = System.currentTimeMillis() - start;
         log.info("[Supervisor] 完成: goal=[{}], 子任务={}, 成功={}, 耗时={}ms",

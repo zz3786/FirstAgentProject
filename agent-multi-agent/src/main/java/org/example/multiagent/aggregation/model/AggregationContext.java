@@ -1,45 +1,49 @@
 package org.example.multiagent.aggregation.model;
 
+import org.example.multiagent.conflict.model.ConflictResolution;
 import org.example.multiagent.model.AgentRequest;
 import org.example.multiagent.model.AgentResponse;
 
 import java.util.List;
 
 /**
- * 聚合上下文（D75）
+ * 聚合上下文（D75 建，D76 扩展）
  *
- * <h3>职责</h3>
+ * <h3>D76 新增字段</h3>
  * <p>
- * 把所有"聚合策略需要的信息"打包成一个不可变对象——
- * 策略实现只读它，不需要再访问其他 Bean。
+ * {@code conflictResolution}——冲突处理决议。默认 null（未处理过）。
+ * 聚合策略可以读取它，在合成时"优先采信决议"。
  *
- * <h3>为什么带 parentRequest</h3>
+ * <h3>为什么不用方法参数传入</h3>
  * <p>
- * 有些策略可能需要：
- * <ul>
- *   <li>{@code fullUserId}——做审计或个性化</li>
- *   <li>{@code metadata}——取权重配置、租户信息</li>
- *   <li>{@code requestId}——日志关联</li>
- * </ul>
- * <p>
- * 与其在每个策略里注入一堆依赖，不如一次打包传入——策略实现保持纯函数。
+ * 决策信息属于"上下文"——它不是"策略要用它做什么"，而是"策略能看到什么"。
+ * 塞进 context 让策略自由选择读或不读——更灵活。
  *
- * <h3>为什么 responses 用 List 而非 Map</h3>
+ * <h3>为什么保留 3 参构造器</h3>
  * <p>
- * 排序信息重要——{@code List} 天然有序（子任务声明顺序）。
- * 按 role 索引的需求用 {@code stream().filter(...)} 解决——
- * 不预优化，保持简单。
+ * D75 的测试和旧代码用 3 参构造——加 4 参后保留兼容构造器，
+ * 避免破坏所有调用点。
  */
 public record AggregationContext(
         String goal,
         AgentRequest parentRequest,
-        List<AgentResponse> responses
+        List<AgentResponse> responses,
+        ConflictResolution conflictResolution
 ) {
 
     public AggregationContext {
         if (responses == null) {
             responses = List.of();
         }
+        // conflictResolution 保持 null 语义——"未处理过"
+    }
+
+    /**
+     * 兼容构造器——D75 签名
+     */
+    public AggregationContext(String goal, AgentRequest parentRequest,
+                              List<AgentResponse> responses) {
+        this(goal, parentRequest, responses, null);
     }
 
     /** 成功的响应数 */
@@ -55,5 +59,12 @@ public record AggregationContext(
     /** 总响应数 */
     public int size() {
         return responses.size();
+    }
+
+    /** 是否存在已解决的冲突 */
+    public boolean hasResolvedConflict() {
+        return conflictResolution != null
+                && conflictResolution.hasConflict()
+                && conflictResolution.resolution() != null;
     }
 }

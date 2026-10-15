@@ -65,6 +65,14 @@ public class LlmSynthesisStrategy implements AggregationStrategy {
             String opinions = buildOpinionsText(context);
             String prompt = buildPrompt(context.goal(), opinions);
 
+            // ★ D76：如果有冲突决议，追加到 prompt
+            if (context.hasResolvedConflict()) {
+                prompt = prompt + "\n\n" + buildConflictInjection(context);
+                log.info("[LlmSynthesis] 注入冲突决议: strategy={}, confidence={}",
+                        context.conflictResolution().strategyName(),
+                        String.format("%.2f", context.conflictResolution().confidence()));
+            }
+
             String answer = synthesizerClient.prompt()
                     .user(prompt)
                     .call()
@@ -151,6 +159,26 @@ public class LlmSynthesisStrategy implements AggregationStrategy {
             sb.append("\n\n");
         }
         return AggregationResult.fail(sb.toString(), name(), cost, reason);
+    }
+
+    /**
+     * 构造冲突决议注入文本（D76）
+     * <p>
+     * 放在最后追加——因为 LLM 对"结尾最近的指令"服从度最高。
+     * 用"优先采信"这类明确措辞——避免 LLM 忽略。
+     */
+    private String buildConflictInjection(AggregationContext context) {
+        var cr = context.conflictResolution();
+        return """
+                ================ 冲突处理决议 ================
+                专家意见存在分歧，已经过 %s 处理：
+                
+                %s
+                
+                【要求】请在整合答案时【优先采信】上述决议。如果决议与某位专家
+                的具体意见矛盾，以决议为准；但可以在答案中说明"另有专家持不同看法"。
+                =============================================
+                """.formatted(cr.strategyName(), cr.resolution());
     }
 
     private String truncate(String s, int max) {
