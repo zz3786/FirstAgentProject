@@ -56,19 +56,24 @@ public class OcrService {
      */
     private final ExecutorService ocrExecutor;
 
+
     public OcrService(OcrProperties props) {
         this.props = props;
         this.tesseractHolder = ThreadLocal.withInitial(this::createTesseract);
-        this.ocrExecutor = Executors.newFixedThreadPool(
-                Math.max(2, Runtime.getRuntime().availableProcessors() / 2),
-                r -> {
-                    Thread t = new Thread(r, "ocr-worker");
-                    t.setDaemon(true);
-                    return t;
-                }
-        );
-        log.info("OcrService 初始化：language={}, tessdata={}, enabled={}",
-                props.getLanguage(), props.getTessdataPath(), props.isEnabled());
+
+        // ★ 池大小可配
+        int size = props.getPoolSize() > 0
+                ? props.getPoolSize()
+                : Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+
+        this.ocrExecutor = Executors.newFixedThreadPool(size, r -> {
+            Thread t = new Thread(r, "ocr-worker");
+            t.setDaemon(true);
+            return t;
+        });
+
+        log.info("OcrService 初始化：language={}, tessdata={}, poolSize={}",
+                props.getLanguage(), props.getTessdataPath(), size);
     }
 
     /**

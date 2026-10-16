@@ -25,7 +25,7 @@ public class DebugPromptAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public int getOrder() {
-        return Ordered.LOWEST_PRECEDENCE - 1;
+        return 1000;
     }
 
     @Override

@@ -1,5 +1,7 @@
 package org.example.multiagent.worker;
 
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.extern.slf4j.Slf4j;
 import org.example.core.rbac.ToolAuthorizer;
 import org.example.core.rbac.wrapper.AuthzToolCallback;
@@ -9,9 +11,11 @@ import org.example.multiagent.config.WorkerConfig;
 import org.example.multiagent.model.AgentRequest;
 import org.example.multiagent.model.AgentResponse;
 import org.example.multiagent.model.AgentRole;
+import org.example.observability.tracing.SpanNaming;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.Arrays;
 import java.util.Map;
@@ -86,13 +90,15 @@ public abstract class AbstractWorkerAgent implements WorkerAgent {
     private final ToolProfileResolver toolProfileResolver;
     private final SafeToolCallbackFactory safeToolCallbackFactory;
     private final ToolAuthorizer toolAuthorizer;
+    private final Tracer tracer;
 
     protected AbstractWorkerAgent(
             ChatClient chatClient,
             ToolProfileResolver toolProfileResolver,
             SafeToolCallbackFactory safeToolCallbackFactory,
             ToolAuthorizer toolAuthorizer,
-            WorkerConfig config) {
+            WorkerConfig config,
+            ObjectProvider<Tracer> tracerProvider) {
 
         // 配置校验——启动时暴露问题
         if (config == null) {
@@ -111,6 +117,7 @@ public abstract class AbstractWorkerAgent implements WorkerAgent {
         this.toolProfileResolver = toolProfileResolver;
         this.safeToolCallbackFactory = safeToolCallbackFactory;
         this.toolAuthorizer = toolAuthorizer;
+        this.tracer = tracerProvider.getIfAvailable();
 
         log.info("[{}] 初始化完成: role={}, profile={}",
                 getClass().getSimpleName(), config.getRole(), config.getToolProfile());
@@ -130,8 +137,30 @@ public abstract class AbstractWorkerAgent implements WorkerAgent {
 
     // ==================== 模板方法 ====================
 
+
     @Override
     public final AgentResponse execute(AgentRequest request) {
+        // ★ D77：Worker 层 Span——每个角色独立命名
+        Span span = null;
+        if (tracer != null) {
+            String spanName = SpanNaming.AGENT_WORKER_PREFIX
+                    + role().name().toLowerCase();
+            span = tracer.nextSpan()
+                    .name(spanName)
+                    .tag(SpanNaming.TAG_AGENT_ROLE, role().name())
+                    .tag(SpanNaming.TAG_AGENT_REQUEST_ID, request.requestId())
+                    .start();
+        }
+
+        try (Tracer.SpanInScope ws = span != null
+                ? tracer.withSpan(span) : null) {
+            return doExecute(request);
+        } finally {
+            if (span != null) span.end();
+        }
+    }
+
+    public final AgentResponse doExecute(AgentRequest request) {
         long start = System.currentTimeMillis();
 
         try {

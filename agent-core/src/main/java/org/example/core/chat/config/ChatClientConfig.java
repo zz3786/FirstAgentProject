@@ -4,6 +4,7 @@ import org.example.advisor.*;
 import org.example.core.chat.advisor.DebugPromptAdvisor;
 import org.example.core.chat.advisor.ToolLoggingAdvisor;
 import org.example.memory.LongTermMemoryService;
+import org.example.observability.tracing.TracingAdvisor;
 import org.example.preference.UserPreferenceService;
 import org.example.rag.retrieval.advisor.RagAdvisor;
 import org.example.rag.retrieval.service.HybridSearchService;
@@ -11,6 +12,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -59,32 +61,42 @@ public class ChatClientConfig {
             HybridSearchService hybridSearchService,
             ConversationRetrievalAdvisor conversationRetrievalAdvisor,
             ConversationMemoryAdvisor conversationMemoryAdvisor,
-            UserInterestAdvisor userInterestAdvisor) {
+            UserInterestAdvisor userInterestAdvisor,
+            ObjectProvider<TracingAdvisor> tracingAdvisorProvider) {   // ★ 新增
 
-        // ⑩ ⑪ ⑫
+        // ★ D77：TracingAdvisor 可能不存在（依赖缺失时）——可选注入
+        TracingAdvisor tracingAdvisor = tracingAdvisorProvider.getIfAvailable();
+
+        // ★ 临时调试——看 Advisor 到底有没有拿到
+        System.out.println(">>> [ChatClientConfig] tracingAdvisor = " + tracingAdvisor
+                + " (class=" + (tracingAdvisor == null ? "null" : tracingAdvisor.getClass().getSimpleName()) + ")");
+
+        // 构造 Advisor 数组——根据 tracingAdvisor 是否存在动态决定
         return ChatClient.builder(chatModel)
                 .defaultAdvisors(
-                        // ① 会话记忆
+                        // ① D77：TracingAdvisor——最外层
+                        tracingAdvisor != null ? tracingAdvisor : noopAdvisor(),
+                        // ② 会话记忆
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
-                        // ② 压缩
+                        // ③ 压缩
                         compactingAdvisor,
-                        // ③ 用户偏好
+                        // ④ 用户偏好
                         new PreferenceAdvisor(preferenceService),
-                        // ④ 用户画像
+                        // ⑤ 用户画像
                         userInterestAdvisor,
-                        // ⑤ RAG 检索
+                        // ⑥ RAG 检索
                         new RagAdvisor(hybridSearchService),
-                        // ⑥ 长期记忆检索（LTM 关键词路，order=200）
+                        // ⑦ LTM 关键词路
                         new LongTermMemoryAdvisor(longTermMemoryService),
-                        // ⑦ 对话历史检索（向量语义路，order=210）
+                        // ⑧ 对话历史向量路
                         conversationRetrievalAdvisor,
-                        // ⑧ 工具日志
+                        // ⑨ 工具日志
                         new ToolLoggingAdvisor(),
-                        // ⑨ 对话历史写入（order=250，链尾）
+                        // ⑩ 对话历史写入
                         conversationMemoryAdvisor,
-                        //提示词日志
+                        // ⑪ 提示词日志
                         new DebugPromptAdvisor()
-                        )
+                )
                 .build();
     }
 
@@ -92,7 +104,49 @@ public class ChatClientConfig {
      * 无记忆 Client：用于简单同步 / 流式调用，不带记忆、不带工具
      */
     @Bean("plainChatClient")
-    public ChatClient plainChatClient(OpenAiChatModel chatModel) {
+    public ChatClient plainChatClient(
+            OpenAiChatModel chatModel,
+            ObjectProvider<TracingAdvisor> tracingAdvisorProvider) {
+        TracingAdvisor tracingAdvisor = tracingAdvisorProvider.getIfAvailable();
+        if (tracingAdvisor != null) {
+            return ChatClient.builder(chatModel)
+                    .defaultAdvisors(tracingAdvisor)
+                    .build();
+        }
         return ChatClient.builder(chatModel).build();
+    }
+
+
+
+
+    /**
+     * 空 Advisor——当 TracingAdvisor 不存在时的占位
+     * <p>
+     * {@code ChatClient.defaultAdvisors(...)} 不接受 null——
+     * 用这个空实现保持 Advisor 数量一致（虽然功能上不必要）。
+     * <p>
+     * <b>更简方案</b>：把 {@code defaultAdvisors} 拆成两个分支——
+     * 有/无 TracingAdvisor 各调一次。但那会重复一堆代码。
+     * 空 Advisor 更简洁。
+     */
+    private static org.springframework.ai.chat.client.advisor.api.CallAdvisor noopAdvisor() {
+        return new org.springframework.ai.chat.client.advisor.api.CallAdvisor() {
+            @Override
+            public String getName() {
+                return "NoopAdvisor";
+            }
+
+            @Override
+            public int getOrder() {
+                return org.springframework.core.Ordered.HIGHEST_PRECEDENCE;
+            }
+
+            @Override
+            public org.springframework.ai.chat.client.ChatClientResponse adviseCall(
+                    org.springframework.ai.chat.client.ChatClientRequest request,
+                    org.springframework.ai.chat.client.advisor.api.CallAdvisorChain chain) {
+                return chain.nextCall(request);
+            }
+        };
     }
 }

@@ -91,4 +91,15 @@ public class OcrProperties {
      * 若发现某些文档识别率低，可以尝试调整此参数。
      */
     private int pageSegMode = 3;
+
+    /**
+     * OCR 线程池大小
+     * <p>
+     * 0 = 自动（CPU 核数 / 2，min 2）
+     * >0 = 用指定值
+     * <p>
+     * <b>为什么可配</b>：不同机器 CPU 不同；测试环境想降并发；
+     * 生产环境 OCR 是次要任务，可能想限制资源占用。
+     */
+    private int poolSize = 0;
 }

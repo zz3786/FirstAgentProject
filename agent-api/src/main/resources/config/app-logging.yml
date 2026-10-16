@@ -1,18 +1,40 @@
 # ============================================================
-# 日志级别配置
-# ------------------------------------------------------------
-# ⚠️ TRACE 级会输出海量内容——生产环境建议降到 DEBUG 或 WARN
+# 日志级别配置（公共部分）
 # ============================================================
-
 logging:
   level:
-    # HTTP 请求详细日志——排查外部调用时用
     org.springframework.web.client: TRACE
-    org.springframework.web.client.DefaultRestClient: TRACE
-    org.springframework.http.client: TRACE
-    # Spring AI 调用日志——排查 prompt/response 时用
     org.springframework.ai.openai: DEBUG
-    # MyBatis SQL 日志——排查 SQL 时用
     org.mybatis: DEBUG
-    org.mybatis.spring: DEBUG
-    org.apache.ibatis: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+
+# ============================================================
+# dev profile —— 本地开发
+# ============================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+app:
+  log:
+    home: ./logs          # 项目根/logs
+
+# ============================================================
+# prod profile —— 服务器生产
+# ============================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+app:
+  log:
+    home: /var/log/firstagent    # 服务器绝对路径
+logging:
+  level:
+    # 生产环境降噪
+    org.springframework.web.client: WARN
+    org.springframework.ai.openai: INFO
+    org.mybatis: WARN

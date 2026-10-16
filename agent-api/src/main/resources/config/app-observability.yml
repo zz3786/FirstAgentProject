@@ -9,9 +9,9 @@
 management:
   # ---------- Tracing 采样率 ----------
   tracing:
-    # 默认 0.1（生产建议）——dev profile 覆盖为 1.0
     sampling:
-      probability: 0.1
+      probability: 0.1 # 生产默认 10% 采样——dev profile 覆盖为 1.0
+
 
   # ---------- Zipkin 上报端点 ----------
   zipkin:
@@ -36,10 +36,10 @@ management:
         http.server.requests: true
         spring.ai.chat.client: true
 
-# ---------- 应用名（Zipkin UI 里显示） ----------
+
 spring:
-  application:
-    name: agent-api
+  reactor:
+    context-propagation: auto   # ★ 让 Reactor 自动传播 MDC / TraceContext
 
 # ---------- dev profile 覆盖采样率 ----------
 ---
@@ -50,4 +50,33 @@ spring:
 management:
   tracing:
     sampling:
-      probability: 1.0   # 开发环境 100% 采样
+      # 用 dev profile 覆盖
+      probability: 1.0    # ★ dev 100% 采样——调试用
+
+
+# ============================================================
+# D77：自定义埋点开关
+# ------------------------------------------------------------
+# 与 management.tracing.* 的区别：
+#   management.tracing.*   → 全局采样率（记不记 trace）
+#   app.observability.*    → 具体埋点开关（哪类操作要不要生成 Span）
+# ============================================================
+app:
+  observability:
+    tracing:
+      # 总开关——关闭后所有自定义埋点跳过（仍保留 Spring 自动的 HTTP/JDBC 埋点）
+      enabled: true
+
+      # 是否追踪 ChatClient 调用
+      trace-chat-client: true
+
+      # 是否追踪工具调用
+      trace-tool-calls: true
+
+      # 工具入参在 Span tag 里的最大长度
+      # 0 = 只记长度不记内容（生产推荐）
+      # >0 = 记录前 N 个字符（调试用——注意隐私）
+      max-input-tag-length: 0
+
+      # 是否记录工具调用成功/失败 tag
+      record-tool-outcome: true

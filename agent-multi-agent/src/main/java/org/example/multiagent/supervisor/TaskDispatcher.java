@@ -1,5 +1,7 @@
 package org.example.multiagent.supervisor;
 
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.extern.slf4j.Slf4j;
 import org.example.multiagent.bus.AgentMessageBus;
 import org.example.multiagent.bus.AgentMessageConverter;
@@ -12,6 +14,7 @@ import org.example.multiagent.model.SubTask;
 import org.example.multiagent.model.TaskGraph;
 import org.example.multiagent.worker.WorkerAgent;
 import org.example.multiagent.worker.WorkerAgentRegistry;
+import org.example.observability.tracing.SpanNaming;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
@@ -65,21 +68,50 @@ public class TaskDispatcher {
     private final ObjectProvider<AgentMessageBus> busProvider;
     private final AgentMessageConverter messageConverter;
     private final ExecutorService virtualThreadExecutor;
+    private final Tracer tracer;
 
     public TaskDispatcher(WorkerAgentRegistry registry,
                           MultiAgentProperties props,
                           ObjectProvider<AgentMessageBus> busProvider,
-                          AgentMessageConverter messageConverter) {
+                          AgentMessageConverter messageConverter,
+                          ObjectProvider<Tracer> tracerProvider) {
         this.registry = registry;
         this.props = props;
         this.busProvider = busProvider;
         this.messageConverter = messageConverter;
         this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        this.tracer = tracerProvider.getIfAvailable();
     }
 
-    // ==================== 主入口 ====================
 
+
+    // ==================== 主入口 ====================
     public List<AgentResponse> dispatch(TaskGraph graph, AgentRequest parentRequest) {
+        if (graph == null || graph.isEmpty()) {
+            return List.of();
+        }
+
+        // ★ D77：Dispatch 层 Span
+        Span span = null;
+        if (tracer != null) {
+            span = tracer.nextSpan()
+                    .name(SpanNaming.AGENT_DISPATCH)
+                    .tag("dispatch.subtask.count", String.valueOf(graph.size()))
+                    .tag("dispatch.channel", props.getSupervisor().isViaMq() ? "mq" : "direct")
+                    .start();
+        }
+
+        try (Tracer.SpanInScope ws = span != null
+                ? tracer.withSpan(span) : null) {
+            return doDispatch(graph, parentRequest);
+        } finally {
+            if (span != null) {
+                span.end();
+            }
+        }
+    }
+
+    public List<AgentResponse> doDispatch(TaskGraph graph, AgentRequest parentRequest) {
         if (graph == null || graph.isEmpty()) {
             return List.of();
         }

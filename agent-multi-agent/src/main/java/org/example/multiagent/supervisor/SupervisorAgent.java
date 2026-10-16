@@ -1,5 +1,8 @@
 package org.example.multiagent.supervisor;
 
+
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.extern.slf4j.Slf4j;
 import org.example.multiagent.aggregation.ResultAggregator;
 import org.example.multiagent.aggregation.model.AggregationContext;
@@ -12,7 +15,9 @@ import org.example.multiagent.model.AgentRequest;
 import org.example.multiagent.model.AgentResponse;
 import org.example.multiagent.model.SupervisorResult;
 import org.example.multiagent.model.TaskGraph;
+import org.example.observability.tracing.SpanNaming;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
@@ -74,6 +79,7 @@ public class SupervisorAgent {
     private final ResultAggregator resultAggregator;
     private final ConflictHandler conflictHandler;
     private final MultiAgentProperties props;
+    private final Tracer tracer;
 
     public SupervisorAgent(
             TaskDecomposer decomposer,
@@ -82,13 +88,37 @@ public class SupervisorAgent {
             @Qualifier("reflectiveChatClient") ChatClient fallbackClient,
             ResultAggregator resultAggregator,
             ConflictHandler conflictHandler,
-            MultiAgentProperties props) {
+            MultiAgentProperties props,
+            ObjectProvider<Tracer> tracerProvider) {
         this.decomposer = decomposer;
         this.dispatcher = dispatcher;
         this.fallbackClient = fallbackClient;
         this.resultAggregator = resultAggregator;
         this.conflictHandler = conflictHandler;
         this.props = props;
+        this.tracer = tracerProvider.getIfAvailable();
+    }
+
+
+
+    public SupervisorResult execute(AgentRequest request) {
+        // ★ D77：Supervisor 层 Span
+        Span span = null;
+        if (tracer != null) {
+            span = tracer.nextSpan()
+                    .name(SpanNaming.AGENT_SUPERVISOR)
+                    .tag(SpanNaming.TAG_AGENT_REQUEST_ID, request.requestId())
+                    .start();
+        }
+
+        try (Tracer.SpanInScope ws = span != null
+                ? tracer.withSpan(span) : null) {
+            return doExecute(request);
+        } finally {
+            if (span != null) {
+                span.end();
+            }
+        }
     }
 
     /**
@@ -97,7 +127,7 @@ public class SupervisorAgent {
      * @param request 用户请求（input = 用户问题）
      * @return 主管结果——包含任务图、所有 Worker 响应、最终答案
      */
-    public SupervisorResult execute(AgentRequest request) {
+    public SupervisorResult doExecute(AgentRequest request) {
         long start = System.currentTimeMillis();
 
         // ① 拆解

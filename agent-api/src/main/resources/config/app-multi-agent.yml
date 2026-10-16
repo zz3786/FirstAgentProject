@@ -182,23 +182,3 @@ app:
         3. 对不确定的法律问题，建议咨询执业律师
         4. 不做超出法务专业范围的判断
         
-
-# ============================================================
-# RabbitMQ 连接配置（Spring Boot 标准前缀）
-# ============================================================
-spring:
-  rabbitmq:
-    host: ${RABBITMQ_HOST:localhost}
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USER:fap}
-    password: ${RABBITMQ_PASSWORD:fap123456}
-    virtual-host: ${RABBITMQ_VHOST:/fap}
-    # Publisher Confirm——保证消息到达 Broker
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    # 自动声明拓扑——由 RabbitTopologyConfig 主动声明，这里关掉隐式声明
-    listener:
-      simple:
-        acknowledge-mode: auto
-        retry:
-          enabled: false   # 我们不用 Spring 的自动重试——靠 DLX

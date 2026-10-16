@@ -17,12 +17,6 @@
     </properties>
 
     <dependencies>
-        <!-- 内部：工具类（TextUtils 等） -->
-        <dependency>
-            <groupId>org.example</groupId>
-            <artifactId>agent-common</artifactId>
-        </dependency>
-
         <!-- Spring AI Advisor 接口（TracingAdvisor 需要 CallAdvisor / StreamAdvisor） -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
@@ -41,6 +35,14 @@
             <artifactId>micrometer-tracing-bridge-brave</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.zipkin.brave</groupId>
+            <artifactId>brave-context-slf4j</artifactId>
+        </dependency>
         <!-- Zipkin Reporter：把 Span 上报到 Zipkin -->
         <dependency>
             <groupId>io.zipkin.reporter2</groupId>

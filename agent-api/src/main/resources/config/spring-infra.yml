@@ -62,10 +62,32 @@ spring:
       port: 6379
       password: hfcx_redis_123456
 
+  # ============================================================
+  # RabbitMQ 连接配置（Spring Boot 标准前缀）
+  # ============================================================
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:fap}
+    password: ${RABBITMQ_PASSWORD:fap123456}
+    virtual-host: ${RABBITMQ_VHOST:/fap}
+    # Publisher Confirm——保证消息到达 Broker
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    # 自动声明拓扑——由 RabbitTopologyConfig 主动声明，这里关掉隐式声明
+    listener:
+      simple:
+        acknowledge-mode: auto
+        retry:
+          enabled: false   # 我们不用 Spring 的自动重试——靠 DLX
+
 # ========== MyBatis ==========
 mybatis:
   # XML mapper 文件位置——支持多模块
   mapper-locations: classpath*:mapper/**/*.xml
   # 实体类包路径——typeAlias 用
   # ⚠️ 重构后如果 rag.entity 改了位置——这里要同步改
-  type-aliases-package: org.example.rag.entity
+
+
+
+

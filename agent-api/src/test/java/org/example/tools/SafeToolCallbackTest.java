@@ -3,41 +3,61 @@ package org.example.tools;
 import org.example.core.retry.AiRetryTemplate;
 import org.example.core.retry.config.RetryProperties;
 import org.example.core.tools.SafeToolCallback;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * SafeToolCallback 单元测试（D66 后重写）
+ * SafeToolCallback 单元测试（D66 后重写，D77 收尾改线程池）
  *
- * <h3>为什么重写</h3>
+ * <h3>D77 收尾改动</h3>
  * <p>
- * D66 引入重试机制后，{@link SafeToolCallback} 的构造函数从
- * {@code SafeToolCallback(ToolCallback)} 变成
- * {@code SafeToolCallback(ToolCallback, AiRetryTemplate)}。
- * 原测试用单参构造，编译不过。
+ * {@code SafeToolCallback} 的构造器从 2 参
+ * {@code (ToolCallback, AiRetryTemplate)}
+ * 变成 3 参
+ * {@code (ToolCallback, AiRetryTemplate, ExecutorService)}——
+ * 静态池改成 Spring Bean 注入。
+ * <p>
+ * 本测试是纯 JUnit（不启 Spring），所以用
+ * {@link Executors#newFixedThreadPool(int)} 手动创建测试线程池，
+ * {@code @AfterAll} 关闭。
  *
- * <h3>设计要点</h3>
- * <ul>
- *   <li><b>不启动 Spring 容器</b>——纯 JUnit 测试，毫秒级</li>
- *   <li><b>用 FakeToolCallback 模拟各种行为</b>——ok / error / slow</li>
- *   <li><b>重试逻辑通过 RetryProperties 控制</b>——正常/异常测试关重试，
- *       超时测试只尝试一次——避免测试等太久</li>
- *   <li><b>超时测试标记 {@code @Tag("slow")}</b>——需要 5 秒，
- *       CI 里可按需过滤</li>
- * </ul>
+ * <h3>为什么共享一个静态池</h3>
+ * <p>
+ * 4 个测试用例各自创建一个池也行——但共享一个更省资源，且
+ * 测试方法之间是顺序执行的（JUnit 默认），无并发争抢。
+ *
+ * <h3>超时测试标记 {@code @Tag("slow")}</h3>
+ * <p>
+ * 需要 5 秒——CI 里可按需过滤。
  */
 class SafeToolCallbackTest {
 
+    /** 测试共享线程池——4 个线程够用 */
+    private static final ExecutorService TEST_EXECUTOR =
+            Executors.newFixedThreadPool(4, r -> {
+                Thread t = new Thread(r, "test-tool-callback");
+                t.setDaemon(true);
+                return t;
+            });
+
+    @AfterAll
+    static void shutdownExecutor() throws InterruptedException {
+        TEST_EXECUTOR.shutdownNow();
+        TEST_EXECUTOR.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
     // ==================== 测试替身 ====================
 
-    /**
-     * 假的 ToolCallback——模拟三种行为。
-     */
     private static class FakeToolCallback implements ToolCallback {
 
         private final String name;
@@ -61,8 +81,6 @@ class SafeToolCallbackTest {
         public String call(String toolInput) {
             switch (behavior) {
                 case "slow":
-                    // ★ 用 6 秒——比 SafeToolCallback.TIMEOUT_SECONDS（5 秒）长 1 秒
-                    //   测试超时行为；不要用 60 秒——超时逻辑失效时会让测试挂很久
                     try {
                         Thread.sleep(6_000);
                     } catch (InterruptedException e) {
@@ -80,27 +98,16 @@ class SafeToolCallbackTest {
 
     // ==================== 辅助构造 ====================
 
-    /**
-     * 关闭重试的 RetryTemplate——让每次调用只执行一次，
-     * 异常立即返回，测试速度快。
-     */
     private static AiRetryTemplate noRetryTemplate() {
         RetryProperties props = new RetryProperties();
-        props.setEnabled(false);   // ★ 关闭重试
+        props.setEnabled(false);
         return new AiRetryTemplate(props);
     }
 
-    /**
-     * 单次尝试的 RetryTemplate——用于超时测试。
-     * <p>
-     * 不关重试（避免和"关闭重试"语义混淆），
-     * 但把 maxAttempts 设为 1——只跑一次，
-     * 避免超时测试等 3 × 5 = 15 秒。
-     */
     private static AiRetryTemplate singleAttemptTemplate() {
         RetryProperties props = new RetryProperties();
         props.setEnabled(true);
-        props.setDefaultMaxAttempts(1);   // ★ 只尝试一次
+        props.setDefaultMaxAttempts(1);
         return new AiRetryTemplate(props);
     }
 
@@ -111,7 +118,8 @@ class SafeToolCallbackTest {
     void testNormalCall() {
         SafeToolCallback safe = new SafeToolCallback(
                 new FakeToolCallback("demo", "ok"),
-                noRetryTemplate());
+                noRetryTemplate(),
+                TEST_EXECUTOR);                      // ★ 3 参
 
         String result = safe.call("{\"a\":1}");
 
@@ -124,13 +132,12 @@ class SafeToolCallbackTest {
     void testErrorCall() {
         SafeToolCallback safe = new SafeToolCallback(
                 new FakeToolCallback("demo", "error"),
-                noRetryTemplate());
+                noRetryTemplate(),
+                TEST_EXECUTOR);                      // ★ 3 参
 
-        // ① 不抛异常
         assertDoesNotThrow(() -> safe.call("{}"),
                 "工具异常应被 SafeToolCallback 吞掉，返回文本");
 
-        // ② 返回文本包含失败提示 + 具体原因
         String result = safe.call("{}");
 
         assertNotNull(result, "结果不应为 null");
@@ -144,14 +151,10 @@ class SafeToolCallbackTest {
     @Tag("slow")
     @DisplayName("超时执行：应返回友好超时提示")
     void testTimeoutCall() {
-        // ★ 前置说明：
-        //   - SafeToolCallback.TIMEOUT_SECONDS = 5
-        //   - FakeToolCallback "slow" 分支 sleep 6 秒
-        //   - singleAttemptTemplate 只尝试一次
-        //   - 整个测试约需 5 秒（超时后立即返回）
         SafeToolCallback safe = new SafeToolCallback(
                 new FakeToolCallback("demo", "slow"),
-                singleAttemptTemplate());
+                singleAttemptTemplate(),
+                TEST_EXECUTOR);                      // ★ 3 参
 
         String result = safe.call("{}");
 
@@ -165,7 +168,8 @@ class SafeToolCallbackTest {
     void testDefinitionDelegation() {
         SafeToolCallback safe = new SafeToolCallback(
                 new FakeToolCallback("demo", "ok"),
-                noRetryTemplate());
+                noRetryTemplate(),
+                TEST_EXECUTOR);                      // ★ 3 参
 
         assertEquals("demo", safe.getToolDefinition().name(),
                 "getToolDefinition 应原样转发");

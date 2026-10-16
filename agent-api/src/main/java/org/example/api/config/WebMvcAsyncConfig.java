@@ -1,6 +1,9 @@
 package org.example.api.config;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.observability.tracing.TraceContextTaskDecorator;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -10,61 +13,41 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
- * WebMVC 异步请求线程池配置
+ * WebMVC 异步请求线程池配置（D32 建，D77 加 TraceContext 传播）
  *
- * <h3>解决的问题</h3>
+ * <h3>D77 更新</h3>
  * <p>
- * {@code ChatController.streamR()} 返回 {@code Flux<String>}，
- * Spring MVC 通过 SSE 协议异步推送响应。异步请求需要一个
- * {@link org.springframework.core.task.AsyncTaskExecutor} 来执行。
- * 未配置时，Spring MVC fallback 到
- * {@link org.springframework.core.task.SimpleAsyncTaskExecutor}——
- * <b>每次请求新建一个线程，不池化、不限流</b>。
- * 高并发时线程数爆炸，JVM 会 OOM，并打印 warning：
- * <pre>
- * Performing asynchronous handling through the default Spring MVC SimpleAsyncTaskExecutor.
- * This executor is not suitable for production use under load.
- * </pre>
+ * 给线程池加 {@link TraceContextTaskDecorator}——保证 SSE 异步请求的
+ * Span 能延续父请求的 TraceContext，不会在 Zipkin 里"断链"。
  *
- * <h3>为什么用 WebMvcConfigurer 而不是 yml 配置</h3>
+ * <h3>为什么把 sseTaskExecutor 改成 static Bean 方法</h3>
  * <p>
- * {@code spring.task.execution.pool.*} 影响的是 {@code @Async}
- * 的默认执行器，<b>不直接作用于 Spring MVC 的异步请求处理</b>。
- * 要让 Spring MVC 使用自定义线程池，必须通过
- * {@link WebMvcConfigurer#configureAsyncSupport} 注册。
- *
- * <h3>参数选择依据</h3>
+ * D32 首版非 static——直接从本类方法调用。但加 TaskDecorator 后，
+ * Bean 方法需要参数（{@code ObjectProvider<TraceContextTaskDecorator>}），
+ * 不能直接无参调用。
  * <p>
- * SSE 请求的特点是"占用时间长（几秒到几十秒）、消耗 CPU 少"——
- * 大部分时间在等 LLM 返回、等 RAG 检索。所以：
+ * 改为"static Bean 方法 + 构造器注入"的经典模式：
  * <ul>
- *   <li>{@code corePoolSize} 给足——避免高峰期频繁扩缩</li>
- *   <li>{@code maxPoolSize} 更大——支持突发并发</li>
- *   <li>拒绝策略用 {@code CallerRunsPolicy}——队列满时"减速"而非"拒绝"</li>
+ *   <li>static Bean 方法——创建 Bean（Spring 允许，且推荐）</li>
+ *   <li>构造器注入——本类实例持有 Bean 引用</li>
+ *   <li>避免"Bean 方法互相调用"导致的代理问题</li>
  * </ul>
- *
- * <h3>线程数怎么估</h3>
- * <p>
- * 用 Little's Law：{@code maxPoolSize ≈ 峰值 QPS × 平均处理时长（秒）}。
- * <p>
- * 假设峰值 20 QPS，每次 SSE 请求平均占用线程 15 秒 →
- * 需要线程数 ≈ 20 × 15 = 300。当前配置（max=100）适合中小规模，
- * 若发现 {@code queueSize} 长期占用 > 80%，应先调大 maxPoolSize。
  */
 @Slf4j
 @Configuration
 public class WebMvcAsyncConfig implements WebMvcConfigurer {
 
-    /**
-     * SSE 专用线程池
-     * <p>
-     * <b>Bean 名不能叫 {@code taskExecutor}</b>——那个名字被
-     * Spring Boot 的自动配置占用，会冲突。这里命名为
-     * {@code sseTaskExecutor}，只被本类内部和 Spring MVC 异步
-     * 支持体系使用，不会影响其他 {@code @Async} 场景。
-     */
+    private final ThreadPoolTaskExecutor sseTaskExecutor;
+
+    public WebMvcAsyncConfig(
+            @Qualifier("sseTaskExecutor") ThreadPoolTaskExecutor sseTaskExecutor) {
+        this.sseTaskExecutor = sseTaskExecutor;
+    }
+
     @Bean("sseTaskExecutor")
-    public ThreadPoolTaskExecutor sseTaskExecutor() {
+    public static ThreadPoolTaskExecutor sseTaskExecutor(
+            ObjectProvider<TraceContextTaskDecorator> taskDecoratorProvider) {
+
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
 
         // ① 核心线程数——常驻线程，避免请求高峰频繁扩缩
@@ -86,6 +69,15 @@ public class WebMvcAsyncConfig implements WebMvcConfigurer {
         //    效果是"降低接收速度"（背压），而不是"拒绝请求"（503）。
         //    对 SSE 场景更友好：用户宁愿慢一点，也不想看到 503。
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+
+        // ★ D77：TraceContext 传播——SSE 异步请求的 Span 才能续上父请求
+        TraceContextTaskDecorator taskDecorator = taskDecoratorProvider.getIfAvailable();
+        if (taskDecorator != null) {
+            executor.setTaskDecorator(taskDecorator);
+            log.info("[WebMvcAsyncConfig] 已启用 TraceContext 传播");
+        } else {
+            log.info("[WebMvcAsyncConfig] 未启用 TraceContext 传播（Tracer 缺失）");
+        }
 
         // ⑦ 优雅关闭——应用停止时等正在进行的 SSE 请求完成
         executor.setWaitForTasksToCompleteOnShutdown(true);
@@ -115,8 +107,7 @@ public class WebMvcAsyncConfig implements WebMvcConfigurer {
     @Override
     public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
         // ① 使用专用线程池替代 SimpleAsyncTaskExecutor
-        configurer.setTaskExecutor(sseTaskExecutor());
-
+        configurer.setTaskExecutor(sseTaskExecutor);
         // ② SSE 请求超时——5 分钟
         //    必须大于最长 LLM 响应时间。你项目的完整链路
         //    （前置检索 + 两轮 LLM + 推荐块）可能到 30 秒以上，

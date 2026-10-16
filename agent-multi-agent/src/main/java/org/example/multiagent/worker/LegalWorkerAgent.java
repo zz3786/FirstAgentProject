@@ -1,5 +1,6 @@
 package org.example.multiagent.worker;
 
+import io.micrometer.tracing.Tracer;
 import lombok.extern.slf4j.Slf4j;
 import org.example.core.rbac.ToolAuthorizer;
 import org.example.core.toolprofile.ToolProfileResolver;
@@ -8,6 +9,7 @@ import org.example.multiagent.config.WorkerConfig;
 import org.example.multiagent.config.WorkerProperties;
 import org.example.multiagent.model.AgentRole;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -39,13 +41,15 @@ public class LegalWorkerAgent extends AbstractWorkerAgent {
             ToolProfileResolver toolProfileResolver,
             SafeToolCallbackFactory safeToolCallbackFactory,
             ToolAuthorizer toolAuthorizer,
-            WorkerProperties workerProperties) {
+            WorkerProperties workerProperties,
+            ObjectProvider<Tracer> tracerProvider) {
 
         super(legalChatClient,
                 toolProfileResolver,
                 safeToolCallbackFactory,
                 toolAuthorizer,
-                resolveConfig(workerProperties));
+                resolveConfig(workerProperties),
+                tracerProvider);
 
         this.legalChatClient = legalChatClient;
     }

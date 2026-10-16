@@ -1,60 +1,103 @@
 package org.example.core.tools;
 
+import io.micrometer.tracing.Tracer;
 import lombok.extern.slf4j.Slf4j;
 import org.example.core.retry.AiRetryTemplate;
+import org.example.observability.config.TracingProperties;
+import org.example.observability.tracing.TracedToolCallback;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
 
 /**
- * SafeToolCallback 工厂
+ * SafeToolCallback 工厂（D66 建，D77 加 Tracing，D77 收尾改 Spring 线程池）
  *
- * <h3>职责</h3>
- * 把"原始 ToolCallback 数组"包装成"带安全保护的 ToolCallback 数组"。
+ * <h3>线程池来源</h3>
  * <p>
- * <b>为什么要有这个工厂</b>：
+ * 从 {@code ToolExecutorConfig} 注入的 Spring Bean——
+ * 不再用静态池。好处：
  * <ul>
- *   <li>ChatService / PlanChatClientConfig 都需要"批量包装工具"——逻辑重复</li>
- *   <li>把它们对 WorkflowRetryTemplate 的依赖收敛到工厂一处——调用方只认识工厂</li>
- *   <li>未来换重试实现（Resilience4j 等）——只改工厂</li>
+ *   <li>Spring 管理生命周期——优雅关闭</li>
+ *   <li>多测试用例不共享</li>
+ *   <li>参数可通过 yml 覆盖（未来）</li>
  * </ul>
- * <p>
- * <b>不是 Spring Bean 的 SafeToolCallback 通过本工厂注册为组件依赖</b>——
- * 工厂是 Bean，SafeToolCallback 不是（每个工具一个实例）。
  */
 @Slf4j
 @Component
 public class SafeToolCallbackFactory {
 
     private final AiRetryTemplate retryTemplate;
+    private final ObjectProvider<Tracer> tracerProvider;
+    private final ObjectProvider<TracingProperties> tracingPropsProvider;
+    private final ExecutorService toolExecutor;   // ★ 从 ThreadPoolTaskExecutor 提取
 
-    public SafeToolCallbackFactory(AiRetryTemplate retryTemplate) {
+    public SafeToolCallbackFactory(
+            AiRetryTemplate retryTemplate,
+            ObjectProvider<Tracer> tracerProvider,
+            ObjectProvider<TracingProperties> tracingPropsProvider,
+            @Qualifier("toolCallbackExecutor") ThreadPoolTaskExecutor toolCallbackExecutor) {   // ★
+
         this.retryTemplate = retryTemplate;
-        log.info("[SafeToolCallbackFactory] 初始化完成");
+        this.tracerProvider = tracerProvider;
+        this.tracingPropsProvider = tracingPropsProvider;
+        // ★ ThreadPoolTaskExecutor 底层就是 ExecutorService——直接取
+        this.toolExecutor = toolCallbackExecutor.getThreadPoolExecutor();
+
+        log.info("[SafeToolCallbackFactory] 初始化完成，Tracer={}, TracingProps={}, pool={}",
+                tracerProvider.getIfAvailable() != null ? "有" : "无",
+                tracingPropsProvider.getIfAvailable() != null ? "有" : "无",
+                toolCallbackExecutor.getCorePoolSize() + "/"
+                        + toolCallbackExecutor.getMaxPoolSize() + "/"
+                        + toolCallbackExecutor.getQueueCapacity());
     }
 
     /**
      * 批量包装
-     *
-     * @param rawCallbacks 原始工具回调
-     * @return 带超时+重试+日志+兜底的包装版
      */
     public ToolCallback[] wrap(ToolCallback[] rawCallbacks) {
         if (rawCallbacks == null || rawCallbacks.length == 0) {
             return new ToolCallback[0];
         }
-        ToolCallback[] wrapped = Arrays.stream(rawCallbacks)
-                .map(rc -> new SafeToolCallback(rc, retryTemplate))
+
+        // ① Safe 包装——总是做
+        ToolCallback[] safe = Arrays.stream(rawCallbacks)
+                .map(rc -> (ToolCallback) new SafeToolCallback(rc, retryTemplate, toolExecutor))   // ★ 3 参
                 .toArray(ToolCallback[]::new);
-        log.info("[SafeToolCallbackFactory] 包装 {} 个工具", wrapped.length);
-        return wrapped;
+
+        // ② Tracing 包装——如果可用
+        Tracer tracer = tracerProvider.getIfAvailable();
+        TracingProperties tracingProps = tracingPropsProvider.getIfAvailable();
+
+        if (tracer == null || tracingProps == null || !tracingProps.isEnabled()) {
+            log.debug("[SafeToolCallbackFactory] 跳过 Tracing 包装（Tracer 或 Props 缺失）");
+            return safe;
+        }
+
+        ToolCallback[] traced = Arrays.stream(safe)
+                .map(sc -> (ToolCallback) new TracedToolCallback(sc, tracer, tracingProps))
+                .toArray(ToolCallback[]::new);
+
+        log.info("[SafeToolCallbackFactory] 包装 {} 个工具（Safe + Tracing）", traced.length);
+        return traced;
     }
 
     /**
-     * 单个包装——需要单独控制某个工具时用
+     * 单个包装
      */
     public ToolCallback wrap(ToolCallback raw) {
-        return new SafeToolCallback(raw, retryTemplate);
+        ToolCallback safe = new SafeToolCallback(raw, retryTemplate, toolExecutor);   // ★ 3 参
+
+        Tracer tracer = tracerProvider.getIfAvailable();
+        TracingProperties tracingProps = tracingPropsProvider.getIfAvailable();
+
+        if (tracer == null || tracingProps == null || !tracingProps.isEnabled()) {
+            return safe;
+        }
+        return new TracedToolCallback(safe, tracer, tracingProps);
     }
 }

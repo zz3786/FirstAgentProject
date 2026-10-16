@@ -38,6 +38,8 @@ import java.util.concurrent.*;
 @Slf4j
 public class SafeToolCallback implements ToolCallback {
 
+
+
     /** 单次执行的超时（秒） */
     private static final long TIMEOUT_SECONDS = 5;
 
@@ -47,27 +49,26 @@ public class SafeToolCallback implements ToolCallback {
     /** 出参日志最大打印长度 */
     private static final int MAX_LOG_OUTPUT_CHARS = 5000;
 
-    /** 工具执行的线程池——用于超时控制 */
-    private static final ExecutorService EXECUTOR = new ThreadPoolExecutor(
-            16, 32,
-            60L, TimeUnit.SECONDS,
-            new ArrayBlockingQueue<>(200),
-            r -> {
-                Thread t = new Thread(r, "tool-callback-worker");
-                t.setDaemon(true);
-                return t;
-            },
-            new ThreadPoolExecutor.CallerRunsPolicy()
-    );
-
     private final ToolCallback delegate;
 
     /** 重试模板——工具失败时自动重发 */
     private final AiRetryTemplate retryTemplate;
 
-    public SafeToolCallback(ToolCallback delegate, AiRetryTemplate retryTemplate) {
+    private final ExecutorService executor;
+
+    /**
+     * 构造
+     *
+     * @param delegate       被装饰的原始回调
+     * @param retryTemplate  重试模板
+     * @param executor       工具执行线程池（从 Spring Bean 注入）
+     */
+    public SafeToolCallback(ToolCallback delegate,
+                            AiRetryTemplate retryTemplate,
+                            ExecutorService executor) {    // ★ 参数顺序：delegate → retry → executor
         this.delegate = delegate;
         this.retryTemplate = retryTemplate;
+        this.executor = executor;
     }
 
     @Override
@@ -145,7 +146,7 @@ public class SafeToolCallback implements ToolCallback {
      * 而不仅仅是一次 submit。
      */
     private String runWithTimeout(Callable<String> action, String name) throws Exception {
-        Future<String> future = EXECUTOR.submit(action);
+        Future<String> future = executor.submit(action);
         try {
             return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (TimeoutException e) {

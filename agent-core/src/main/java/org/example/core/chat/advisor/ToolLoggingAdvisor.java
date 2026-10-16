@@ -33,9 +33,7 @@ public class ToolLoggingAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public int getOrder() {
-        // 最内层：请求日志看到所有 Advisor 注入后的最终 prompt
-        //          响应日志看到模型原始 tool_call / 文本
-        return Ordered.LOWEST_PRECEDENCE;
+        return 1001;
     }
 
     // ==================== 同步 ====================

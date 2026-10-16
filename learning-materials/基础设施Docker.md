@@ -7,9 +7,17 @@ docker run -d --name fap-rabbitmq \
 rabbitmq:3.13-management
 
 # Zipkin
+# ① 停 + 删旧容器
+docker stop fap-zipkin && docker rm fap-zipkin
+
+# ② 用新参数启动
 docker run -d --name fap-zipkin \
 -p 9411:9411 \
+-e ZIPKIN_UI_BASEPATH=/zipkin \
 openzipkin/zipkin:latest
+
+# ③ 确认起来了
+docker ps --filter name=fap-zipkin
 
 
 访问：
