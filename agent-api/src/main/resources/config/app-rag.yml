@@ -19,9 +19,9 @@ app:
 
     retrieval:
       # 最终返回的 TopK
-      top-k: 2
+      top-k: 5
       # 向量检索相似度阈值（0~1）
-      similarity-threshold: 0.5
+      similarity-threshold: 0.6
       # RRF 融合常数——越大越平滑
       rrf-k: 60
       # 每路召回的放大倍数（recallSize = topK * multiplier）
@@ -31,7 +31,7 @@ app:
         api-url: ${TEI_RERANK_URL}
         timeout-seconds: 8
         # 低于此分数的结果过滤掉
-        min-score: 0.3
+        min-score: 0.5
       # 融合策略：weighted（加权）/ rrf（倒数排名融合）
       fusion-strategy: weighted
       # 向量权重（weighted 策略用）

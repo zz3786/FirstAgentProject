@@ -25,3 +25,18 @@ docker ps --filter name=fap-zipkin
 RabbitMQ 管理台：http://localhost:15672 （fap / fap123456）
 
 Zipkin UI：http://localhost:9411
+
+
+
+docker stop qdrant-server
+docker rm qdrant-server
+
+docker run -d \
+--name qdrant-server \
+-p 6333:6333 \
+-p 6334:6334 \
+-v /opt/qdrant_data:/qdrant/storage \
+-e QDRANT__SERVICE__API_KEY='Hfcx@123456' \
+qdrant/qdrant:v1.7.4
+
+QDRANT__SERVICE__API_KEY 是密码

@@ -24,10 +24,6 @@ public class FirstAgentProjectApplication {
 
         // ★ 打印 JVM 的实际工作目录
         System.out.println(">>> JVM 工作目录: " + System.getProperty("user.dir"));
-        System.out.println(">>> ./tessdata 绝对路径: "
-                + new java.io.File("./tessdata/").getAbsolutePath());
-        System.out.println(">>> ./tessdata 是否存在: "
-                + new java.io.File("./tessdata/").exists());
     }
 
     @Bean

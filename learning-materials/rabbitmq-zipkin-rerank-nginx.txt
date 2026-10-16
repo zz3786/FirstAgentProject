@@ -1,3 +1,4 @@
+#
         # RabbitMQ 管理界面（唯一一条，接管所有 /rabbitmq 请求）
         location /rabbitmq/ {
             proxy_pass http://127.0.0.1:15672/;
@@ -31,17 +32,4 @@
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header REMOTE-HOST $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        }
-        location /qdrant/ {
-            proxy_pass http://127.0.0.1:6333/;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header REMOTE-HOST $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        }
-        # 只匹配 Qdrant 的 gRPC 调用（更精确，不再兜底抢其他请求）
-        location /qdrant. {
-            grpc_pass grpc://127.0.0.1:6334;
-            grpc_set_header Host $host;
-            grpc_read_timeout 300s;
         }
