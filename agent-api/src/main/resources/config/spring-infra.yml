@@ -41,7 +41,7 @@ spring:
     vectorstore:
       qdrant:
         host: ${QDRANT_HOST}
-        port: ${QDRANT_PORT}
+        port: ${QDRANT_PORT:6334}
         api-key: "${QDRANT__SERVICE__API_KEY}"
         collection-name: agent-rag
         initialize-schema: true     # 启动时自动创建集合
