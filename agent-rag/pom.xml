@@ -51,6 +51,11 @@
                     <groupId>org.apache.pdfbox</groupId>
                     <artifactId>pdfbox</artifactId>
                 </exclusion>
+                <!-- ★ D78-C 修复：Tika 传递依赖了旧版 commons-logging，与 SLF4J 冲突，必须排除 -->
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
 
@@ -58,6 +63,13 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-pdf-document-reader</artifactId>
+            <exclusions>
+                <!-- ★ D78-C 修复：排除 commons-logging -->
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- 手动指定 PDFBox 版本（Tika 3.2.3 需要 3.0.4+） -->
@@ -65,6 +77,13 @@
             <groupId>org.apache.pdfbox</groupId>
             <artifactId>pdfbox</artifactId>
             <version>3.0.4</version>
+            <exclusions>
+                <!-- ★ D78-C 修复：排除 pdfbox 自身带进来的 commons-logging -->
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
