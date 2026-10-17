@@ -1,16 +1,6 @@
 # ============================================================
 # FirstAgentProject CI（D78-C）
-# ------------------------------------------------------------
-# 触发：
-#   - pull_request → build-test + docker-build（不推镜像）
-#   - push main    → + smoke-test
-#   - push tag v*  → + publish（推 ghcr.io）
-#
-# 必需 Secrets（Settings → Secrets and variables → Actions）：
-#   CI_DEEPSEEK_API_KEY     —— 随便填非空值（骗过 Spring AI 启动校验）
-#   CI_DASHSCOPE_API_KEY    —— 随便填非空值
 # ============================================================
-
 name: CI
 
 on:
@@ -51,7 +41,6 @@ jobs:
           java-version: '21'
           cache: maven
 
-      # ★ 直接在这里执行打包并跳过测试
       - name: Build & verify
         run: mvn -B -ntp clean package -DskipTests
 
@@ -113,7 +102,6 @@ jobs:
 
   # ============================================================
   # Job 3：Smoke Test（仅 main/tag）
-  # 核心：在云端直接拉起全套 docker-compose 环境！
   # ============================================================
   smoke-test:
     name: Smoke Test
@@ -129,20 +117,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ★ 准备假 .env——增加 JVM 内存限制，防止把云端机器撑爆
+      # ★ 准备假 .env——去掉了 Qdrant Key，确保无密码裸奔
       - name: Prepare .env for smoke test
         run: |
-          # 顺手把 RAG 需要扫描的目录建出来，消除那个 WARN
           mkdir -p ./data/testVectorData
           
           cat > .env <<EOF
           DEEPSEEK_API_KEY=${{ secrets.CI_DEEPSEEK_API_KEY || 'sk-ci-fake-key-for-smoke-test' }}
           DASHSCOPE_API_KEY=${{ secrets.CI_DASHSCOPE_API_KEY || 'sk-ci-fake-key-for-smoke-test' }}
           
-          # ★ 修复 1：显式配置 Qdrant 的 API Key，确保两边一致
-          QDRANT__SERVICE__API_KEY=ci-fake-qdrant-key
+          # 注意：此处故意不配置 QDRANT__SERVICE__API_KEY，让客户端和容器都不鉴权
           
-          # ★ 修复 2：必须加上这个，MySQL 才会给 rag 用户授权
           MYSQL_DATABASE=rag
           MYSQL_ROOT_PASSWORD=root123456
           MYSQL_USER=rag
@@ -157,7 +142,6 @@ jobs:
           JAVA_TOOL_OPTIONS=-Xmx512m
           EOF
 
-      # ★ 执行命令，拉起数据层 + 应用层。失败则立刻打印日志
       - name: Start core + app
         run: |
           docker compose --profile app up -d --build || (
@@ -169,7 +153,6 @@ jobs:
           )
           docker compose ps
 
-      # ★ 循环等待 agent-api 变健康
       - name: Wait for agent-api healthy
         run: |
           set -e
@@ -191,7 +174,6 @@ jobs:
           docker compose logs agent-api
           exit 1
 
-      # ★ 真实发送 HTTP 请求验证
       - name: Curl health endpoint
         run: |
           curl -fsS http://localhost:8080/fap/actuator/health | tee /tmp/health.json
@@ -202,7 +184,6 @@ jobs:
           curl -fsS http://localhost:8086/actuator/health | tee /tmp/mcp-health.json
           grep -q '"status":"UP"' /tmp/mcp-health.json || (echo "MCP health not UP" && exit 1)
 
-      # ★ 检查启动自检报告里有没有 ❌（工具注册失败）
       - name: Check tool chain self-check log
         run: |
           docker compose logs agent-api | grep -A 20 "工具链启动自检报告" || true

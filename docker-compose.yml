@@ -1,5 +1,5 @@
 # ============================================================
-# FirstAgentProject docker-compose (清爽版)
+# FirstAgentProject docker-compose（D78-B）
 # ============================================================
 name: fap
 
@@ -10,13 +10,13 @@ services:
     image: mysql:5.7.44
     container_name: fap-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-rag}
+      MYSQL_USER: ${MYSQL_USER:-rag}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rag123456}
       TZ: Asia/Shanghai
     ports:
-      - "${MYSQL_PORT}:3306"
+      - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
@@ -32,7 +32,7 @@ services:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 10s
       timeout: 5s
-      retries: 15
+      retries: 20
       start_period: 30s
     restart: unless-stopped
 
@@ -48,12 +48,11 @@ services:
     volumes:
       - redis-data:/data
     healthcheck:
-      # 使用 CMD-SHELL 保证变量替换正确
       test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 ${REDIS_PASSWORD:+-a $$REDIS_PASSWORD} ping | grep PONG"]
       interval: 10s
       timeout: 5s
-      retries: 20          # ★ 修复：把重试次数从 10 增加到 20
-      start_period: 30s    # ★ 修复：增加 30 秒启动宽限期，这期间不判为失败
+      retries: 20
+      start_period: 30s
     restart: unless-stopped
 
   # ---------- Qdrant ----------
@@ -61,10 +60,11 @@ services:
     image: qdrant/qdrant:v1.13.0
     container_name: fap-qdrant
     ports:
-      - "6333:6333"   # 宿主机 6333 映射到容器 HTTP
-      - "6334:6334"   # 宿主机 6334 映射到容器 gRPC
+      - "${QDRANT_PORT:-6333}:6333"
+      - "6334:6334"
     environment:
-      QDRANT__SERVICE__API_KEY: "${QDRANT__SERVICE__API_KEY:-}"
+      # ★ 只有在显式配置了环境变量时才需要密码，云端不配就是裸奔
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY:-}
       QDRANT__LOG_LEVEL: INFO
       TZ: Asia/Shanghai
     volumes:
@@ -81,12 +81,12 @@ services:
     image: rabbitmq:3.13-management
     container_name: fap-rabbitmq
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-fap}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-fap123456}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/fap}
       TZ: Asia/Shanghai
     ports:
-      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_PORT:-5672}:5672"
       - "15672:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
@@ -110,8 +110,8 @@ services:
       STORAGE_TYPE: mysql
       MYSQL_HOST: mysql
       MYSQL_TCP_PORT: 3306
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASS: ${MYSQL_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER:-rag}
+      MYSQL_PASS: ${MYSQL_PASSWORD:-rag123456}
       MYSQL_DB: zipkin
       MYSQL_JDBC_URL: jdbc:mysql://mysql:3306/zipkin?autoReconnect=true&useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
     depends_on:
@@ -186,30 +186,28 @@ services:
       agent-mcp-server: {condition: service_healthy}
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
-      # 数据源（这里直接引用 .env 里的值）
+      # 数据源
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER:-rag}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rag123456}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6334
-      QQDRANT__SERVICE__API_KEY: "${QDRANT__SERVICE__API_KEY:-}"
+      # ★ 最终修复：删掉了 QDRANT__SERVICE__API_KEY，让云端冒烟测试彻底无密码裸奔
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
-      RABBITMQ_USER: ${RABBITMQ_USER}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_USER: ${RABBITMQ_USER:-fap}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-fap123456}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/fap}
       # LLM
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       # RAG
       RAG_FILE_STORAGE_DIR: /app/data/rag-files
       RAG_LISTEN_FILES_DIR: /app/data/testVectorData
-      RAG_INCREMENTAL_ENABLED: ${RAG_INCREMENTAL_ENABLED:-true}
-      RAG_SCAN_INTERVAL_MS: ${RAG_SCAN_INTERVAL_MS:-60000}
       TEI_RERANK_URL: ${TEI_RERANK_URL:-http://tei-rerank:80/rerank}
       # MCP Server
       AGENT_MCP_SERVER_URL: http://agent-mcp-server:8086
