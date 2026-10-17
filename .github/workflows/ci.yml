@@ -152,9 +152,9 @@ jobs:
         run: |
           docker compose --profile app up -d --build || (
             echo "❌ 启动失败！以下是各个容器的报错日志："
-            docker compose logs fap-redis
-            docker compose logs fap-agent-api
-            docker compose logs fap-agent-mcp-server
+            docker compose logs redis
+            docker compose logs agent-api
+            docker compose logs agent-mcp-server
             exit 1
           )
           docker compose ps
