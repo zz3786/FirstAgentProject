@@ -61,10 +61,10 @@ services:
     image: qdrant/qdrant:v1.13.0
     container_name: fap-qdrant
     ports:
-      - "${QDRANT_PORT}:6333"
-      - "6334:6334"
+      - "6333:6333"   # 宿主机 6333 映射到容器 HTTP
+      - "6334:6334"   # 宿主机 6334 映射到容器 gRPC
     environment:
-      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+      QDRANT__SERVICE__API_KEY: "${QDRANT__SERVICE__API_KEY}"
       QDRANT__LOG_LEVEL: INFO
       TZ: Asia/Shanghai
     volumes:
