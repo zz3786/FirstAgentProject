@@ -41,18 +41,19 @@ services:
     image: redis/redis-stack-server:7.4.0-v8
     container_name: fap-redis
     environment:
-      # 如果你在 .env 配了密码，这句会自动变成 --requirepass Fap@Redis123
-      REDIS_ARGS: --requirepass ${REDIS_PASSWORD}
+      REDIS_ARGS: ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
       TZ: Asia/Shanghai
     ports:
-      - "${REDIS_PORT}:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -a $$REDIS_PASSWORD ping | grep PONG"]
+      # 使用 CMD-SHELL 保证变量替换正确
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 ${REDIS_PASSWORD:+-a $$REDIS_PASSWORD} ping | grep PONG"]
       interval: 10s
-      timeout: 3s
-      retries: 10
+      timeout: 5s
+      retries: 20          # ★ 修复：把重试次数从 10 增加到 20
+      start_period: 30s    # ★ 修复：增加 30 秒启动宽限期，这期间不判为失败
     restart: unless-stopped
 
   # ---------- Qdrant ----------

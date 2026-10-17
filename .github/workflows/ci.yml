@@ -129,7 +129,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ★ 准备假 .env——云端没有任何真实环境，用假 Key 骗过启动校验
+      # ★ 准备假 .env——增加 JVM 内存限制，防止把云端机器撑爆
       - name: Prepare .env for smoke test
         run: |
           cat > .env <<EOF
@@ -144,12 +144,19 @@ jobs:
           RABBITMQ_VHOST=/fap
           SPRING_PROFILES_ACTIVE=dev
           TRACING_SAMPLING=0.0
+          JAVA_TOOL_OPTIONS=-Xmx512m
           EOF
 
-      # ★ 执行命令，拉起数据层 + 应用层
+      # ★ 执行命令，拉起数据层 + 应用层。失败则立刻打印 Redis 日志
       - name: Start core + app
         run: |
-          docker compose --profile app up -d --build
+          docker compose --profile app up -d --build || (
+            echo "❌ 启动失败！以下是各个容器的报错日志："
+            docker compose logs fap-redis
+            docker compose logs fap-agent-api
+            docker compose logs fap-agent-mcp-server
+            exit 1
+          )
           docker compose ps
 
       # ★ 循环等待 agent-api 变健康
