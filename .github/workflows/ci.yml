@@ -135,6 +135,8 @@ jobs:
           cat > .env <<EOF
           DEEPSEEK_API_KEY=${{ secrets.CI_DEEPSEEK_API_KEY || 'sk-ci-fake-key-for-smoke-test' }}
           DASHSCOPE_API_KEY=${{ secrets.CI_DASHSCOPE_API_KEY || 'sk-ci-fake-key-for-smoke-test' }}
+          # ★ 修复：显式配置 Qdrant 的 API Key，确保两边一致
+          QDRANT__SERVICE__API_KEY=ci-fake-qdrant-key
           MYSQL_ROOT_PASSWORD=root123456
           MYSQL_USER=rag
           MYSQL_PASSWORD=rag123456
