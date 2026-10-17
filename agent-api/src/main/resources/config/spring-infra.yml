@@ -40,8 +40,8 @@ spring:
       qdrant:
         host: ${QDRANT_HOST:localhost}
         port: ${QDRANT_PORT:6334}
-        # ★ 最终修复：如果没有配 Key，默认设为 null，避免发送空的非法鉴权头
-        api-key: ${QDRANT__SERVICE__API_KEY:#{null}}
+        # ★ 恢复标准写法：生产环境通过环境变量传入密码
+        api-key: ${QDRANT__SERVICE__API_KEY:}
         collection-name: agent-rag
         initialize-schema: true     # 启动时自动创建集合
         use-tls: false              # 本地开发不用 TLS
