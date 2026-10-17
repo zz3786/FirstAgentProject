@@ -82,16 +82,29 @@ app:
       record-tool-outcome: true
 
 # ============================================================
-# D79：接口文档配置
+# D79：接口文档配置（默认开启）
 # ============================================================
 springdoc:
-  # 是否开启 API 文档（生产环境建议设为 false，dev 环境为 true）
   api-docs:
     enabled: true
   swagger-ui:
+    enabled: true
     # 访问路径：http://localhost:8080/fap/swagger-ui/index.html
     path: /swagger-ui.html
     tags-sorter: alpha
     operations-sorter: alpha
-  # 默认的包扫描路径
   packages-to-scan: org.example.api.controller
+
+# ============================================================
+# prod profile 下关闭接口文档，防止生产环境暴露接口
+# ============================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
