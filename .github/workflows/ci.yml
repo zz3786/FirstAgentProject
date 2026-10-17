@@ -37,8 +37,6 @@ jobs:
   # ============================================================
   build-test:
     name: Build & Unit Test
-    # 加上 -DskipTests，跳过测试（但会编译测试代码）
-    run: mvn -B -ntp clean package -DskipTests
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -53,8 +51,9 @@ jobs:
           java-version: '21'
           cache: maven
 
+      # ★ 修复：直接在这里执行打包并跳过测试
       - name: Build & verify
-        run: mvn -B -ntp clean verify
+        run: mvn -B -ntp clean package -DskipTests
 
       - name: Upload test reports
         if: always()
