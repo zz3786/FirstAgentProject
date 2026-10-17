@@ -2,7 +2,7 @@ package org.example.core.toolbootstrap;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.common.utils.TextUtils;
-import org.example.core.plan.config.PlanProperties;
+import org.example.core.toolprofile.config.ToolProfileProperties;
 import org.example.rag.retrieval.tools.RetrievalPreferenceTools;
 import org.example.toolregistry.ToolRegistry;
 import org.example.toolregistry.model.ToolDescriptor;
@@ -70,8 +70,11 @@ public class ToolRegistrationBootstrap {
     /** 工具注册中心 */
     private final ToolRegistry toolRegistry;
 
-    /** Plan 配置——用于白名单一致性检查 */
-    private final PlanProperties planProperties;
+    /**
+     * 工具画像配置——D78 用于"白名单一致性检查"。
+     * <p>替代原 PlanProperties.allowedTools（D69 已废弃，字段永远为空）。
+     */
+    private final ToolProfileProperties toolProfileProperties;
 
     // ==================== 本地工具对象（构造注入）====================
 
@@ -89,7 +92,7 @@ public class ToolRegistrationBootstrap {
     public ToolRegistrationBootstrap(
             ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider,
             ToolRegistry toolRegistry,
-            PlanProperties planProperties,
+            ToolProfileProperties toolProfileProperties,
             CalculatorTools calculatorTools,
             TextAnalysisTools textAnalysisTools,
             OrderTools orderTools,
@@ -102,7 +105,7 @@ public class ToolRegistrationBootstrap {
             InterestTools interestTools) {
         this.mcpToolCallbackProvider = mcpToolCallbackProvider;
         this.toolRegistry = toolRegistry;
-        this.planProperties = planProperties;
+        this.toolProfileProperties = toolProfileProperties;
         this.calculatorTools = calculatorTools;
         this.textAnalysisTools = textAnalysisTools;
         this.orderTools = orderTools;
@@ -364,30 +367,72 @@ public class ToolRegistrationBootstrap {
     }
 
     /**
-     * 白名单一致性检查
+     * 白名单一致性检查（D78 重写）
+     *
+     * <h3>为什么重写</h3>
      * <p>
-     * 检查 yml 白名单里的工具是否都能在 ToolRegistry 里找到。
-     * 缺失的工具在启动时 WARN，让运维提前发现配置错误。
+     * 原实现读 PlanProperties.getAllowedTools()——D69 起已废弃（ToolProfile 接管），
+     * 永远是空 List，意味着原方法形同虚设。
+     *
+     * <h3>新逻辑</h3>
+     * <p>
+     * 遍历所有 ToolProfile，把 include-tools 里显式声明的工具名与
+     * ToolRegistry.listNames() 求差集。差异非空说明：
+     * <ul>
+     *   <li>yml 里写了工具名，但对应 @Tool 类被删了/没被扫描</li>
+     *   <li>yml 里写了 MCP 工具名，但 MCP Server 没启动或没暴露该工具</li>
+     * </ul>
+     * 两种情况都应在启动时暴露——而不是等用户请求到 profile 时才发现工具缺失。
+     *
+     * <h3>为什么不阻断启动</h3>
+     * <p>
+     * 这是"配置健康度告警"，不是"致命错误"。WARN 级别 + 明细输出，让运维自己决策。
      */
     private void checkWhitelistConsistency() {
-        var allowed = planProperties.getAllowedTools();
-        if (allowed == null || allowed.isEmpty()) {
+        var profiles = toolProfileProperties.getProfiles();
+        if (profiles == null || profiles.isEmpty()) {
+            log.debug("[D78] 未配置任何 tool profile——跳过白名单一致性检查");
             return;
         }
 
         Set<String> available = toolRegistry.listNames();
-        Set<String> missing = new HashSet<>(allowed);
-        missing.removeAll(available);
+        int totalDeclared = 0;
+        int totalMissing = 0;
+        java.util.List<String> missingDetails = new java.util.ArrayList<>();
 
-        if (!missing.isEmpty()) {
-            log.warn("""
-                    [D67] ⚠ 白名单一致性检查失败：
-                      yml 白名单里有 {} 个工具在 ToolRegistry 里不存在
-                      缺失的工具: {}
-                      当前可用工具: {}
-                    """, missing.size(), missing, available);
+        for (var entry : profiles.entrySet()) {
+            String profileName = entry.getKey();
+            var profile = entry.getValue();
+            var declared = profile.getIncludeTools();
+            if (declared == null || declared.isEmpty()) {
+                continue;   // 按 category/source 过滤的 profile——不检查
+            }
+            totalDeclared += declared.size();
+            Set<String> missing = new HashSet<>(declared);
+            missing.removeAll(available);
+            if (!missing.isEmpty()) {
+                totalMissing += missing.size();
+                missingDetails.add("profile [" + profileName + "] 缺失: " + missing);
+            }
+        }
+
+        if (totalMissing == 0) {
+            log.info("[D78] ✅ 白名单一致性检查通过：{} 个 profile 声明 {} 个工具，全部可用",
+                    profiles.size(), totalDeclared);
         } else {
-            log.info("[D67] ✅ 白名单一致性检查通过：{} 个工具全部可用", allowed.size());
+            log.warn("""
+                [D78] ⚠ 白名单一致性检查发现问题：
+                  {} 个 profile 声明 {} 个工具，其中 {} 个在 ToolRegistry 里不存在
+                  明细：
+                  {}
+                  当前可用工具：{}
+                  排查建议：
+                    1. 检查 app-tool-profiles.yml 里的工具名拼写
+                    2. 检查对应 @Tool 类是否被 @Component 且被 scanLocalTools 扫描到
+                    3. MCP 工具缺失→检查 MCP Server 是否启动（8086）
+                """,
+                    profiles.size(), totalDeclared, totalMissing,
+                    String.join("\n    ", missingDetails), available);
         }
     }
 

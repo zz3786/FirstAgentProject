@@ -2,6 +2,7 @@ package org.example.mcpserver.resource;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springaicommunity.mcp.annotation.McpResource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -9,57 +10,44 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * MCP 资源：RAG 文档原文读取（D65）
+ * MCP 资源：RAG 文档原文读取（D65 / D78 配置化）
  *
- * <h3>Resource 和 Tool 的本质区别</h3>
- * <pre>
- * Tools     —— 模型驱动。模型决定“我要调 getOrderStatus”。
- * Resources —— 应用/用户驱动。前端决定“我要看 docId 的原文”。
- * </pre>
+ * <h3>D78 改动</h3>
  * <p>
- * RAG 文档天然是 Resource，不是 Tool。模型不应该“决定”去读某篇文档——
- * 它应该通过 RAG 检索拿到相关片段。但用户/前端可以“主动”请求
- * 查看某篇文档的完整原文，这就是 Resource 的用武之地。
+ * 原实现用 private static final String FILE_STORAGE_DIR = "D:/...";——Windows 硬编码。
+ * 改为 @Value 注入——优先取 app.rag.ingest.file-storage-dir，
+ * 与 agent-api 侧 IngestProperties 使用同一配置名（跨部署单元语义对齐）。
+ * 默认值 ./data/rag-files/ 是容器内工作目录下的相对路径——Docker 部署挂载卷到此即可。
  *
- * <h3>URI 模板</h3>
+ * <h3>与 RagFileController 的关系</h3>
  * <p>
- * {@code rag://doc/{docId}} 是一个 URI 模板。
- * Client 端发起读取时，把 {@code {docId}} 替换为实际 ID：
- * <pre>
- *   rag://doc/00a4e0e7-817e-4305-a909-34c001e39155
- * </pre>
- *
- * <h3>和 RagFileController 的关系</h3>
- * <p>
- * {@code agent-api} 里的 {@code RagFileController.downloadByDocId()}
- * 提供的是 HTTP 下载接口（给浏览器用）。
- * 本类提供的是 MCP Resource 接口（给 MCP Client 用）。
- * 两者底层读的是同一个文件目录，但协议不同、消费者不同。
+ * agent-api 的 RagFileController 提供 HTTP 下载（浏览器用）；
+ * 本类提供 MCP Resource 接口（MCP Client 用）。
+ * 两者底层读同一目录——但配置文件独立（MCP Server 是独立部署单元）。
+ * 生产部署时务必通过环境变量 RAG_FILE_STORAGE_DIR 让两端指向同一挂载卷。
  */
 @Slf4j
 @Component
 public class RagDocumentMcpResource {
 
-    /**
-     * 文件存储目录——与 agent-api 的 IngestProperties.fileStorageDir 保持一致。
-     * 生产环境中这个值应从配置中心读取，而非硬编码。
-     */
-    private static final String FILE_STORAGE_DIR = "D:/DevelopmentTool/qdrant/rag-files/";
+    private final String fileStorageDir;
 
-    /**
-     * MCP 资源：按 docId 读取文档原文
-     *
-     * <p>Client 发起请求：
-     * <pre>
-     *   resources/read
-     *   { "uri": "rag://doc/{docId}" }
-     * </pre>
-     *
-     * <p>Server 返回文本内容（mimeType = text/plain）。
-     *
-     * @param docId 文档 ID（UUID 格式）
-     * @return 文档原文；找不到时返回提示文本
-     */
+    public RagDocumentMcpResource(
+            @Value("${app.rag.ingest.file-storage-dir:./data/rag-files/}")
+            String fileStorageDir) {
+        this.fileStorageDir = fileStorageDir;
+
+        // ★ D78：启动时立即校验——早失败胜于运行时 500
+        Path dir = Path.of(fileStorageDir);
+        if (Files.exists(dir) && Files.isDirectory(dir)) {
+            log.info("[MCP-Resource] 文档存储目录就绪: {}", dir.toAbsolutePath());
+        } else {
+            log.warn("[MCP-Resource] 文档存储目录不存在或不是目录: {} —— " +
+                            "resources/read 会返回'目录不存在'，请检查配置或挂载",
+                    dir.toAbsolutePath());
+        }
+    }
+
     @McpResource(
             uri = "rag://doc/{docId}",
             name = "RAG 文档原文",
@@ -67,10 +55,8 @@ public class RagDocumentMcpResource {
             mimeType = "text/plain"
     )
     public String readDocument(String docId) {
-
         log.info("[MCP-Resource] 读取文档: docId={}", docId);
 
-        // ① 安全校验——防止路径穿越
         if (docId == null || docId.isBlank()
                 || docId.contains("..")
                 || docId.contains("/")
@@ -78,10 +64,9 @@ public class RagDocumentMcpResource {
             return "非法的文档 ID";
         }
 
-        // ② 查找文件（匹配 {docId}.*）
-        Path dir = Path.of(FILE_STORAGE_DIR);
+        Path dir = Path.of(fileStorageDir);
         if (!Files.exists(dir)) {
-            log.warn("[MCP-Resource] 存储目录不存在: {}", FILE_STORAGE_DIR);
+            log.warn("[MCP-Resource] 存储目录不存在: {}", fileStorageDir);
             return "文档存储目录不存在";
         }
 
@@ -97,7 +82,6 @@ public class RagDocumentMcpResource {
                 return "未找到文档: " + docId;
             }
 
-            // ③ 读取内容——限制最大长度防止超大文件撑爆上下文
             String content = Files.readString(target);
             int maxLen = 50_000;
             if (content.length() > maxLen) {

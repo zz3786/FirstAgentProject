@@ -1,0 +1,22 @@
+# D78-B：Docker 构建上下文排除清单
+.git
+.gitignore
+.idea
+*.iml
+.vscode
+.env
+.env.local
+*.log
+**/target
+**/build
+**/out
+data
+logs
+**/data
+**/logs
+*.md
+docs
+tessdata
+**/Dockerfile
+**/.dockerignore
+docker-compose*.yml

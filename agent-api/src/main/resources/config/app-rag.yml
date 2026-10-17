@@ -9,13 +9,13 @@ app:
   rag:
     ingest:
       # 原文件存储目录（复制一份保存，便于下载）
-      file-storage-dir: D:/DevelopmentTool/qdrant/rag-files/
+      file-storage-dir: ${RAG_FILE_STORAGE_DIR:./data/rag-files/}
       # 监听扫描的目录——新文件放这里
-      listen-files-dir: D:/download/testVectorData
+      listen-files-dir: ${RAG_LISTEN_FILES_DIR:./data/testVectorData/}
       # 扫描间隔（毫秒）——3000000 = 50 分钟
-      scan-interval-ms: 3000000
+      scan-interval-ms: ${RAG_SCAN_INTERVAL_MS:3000000}
       # 是否启用增量扫描（只入库变化的文件）
-      incremental-enabled: true
+      incremental-enabled: ${RAG_INCREMENTAL_ENABLED:true}
 
     retrieval:
       # 最终返回的 TopK

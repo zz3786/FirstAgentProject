@@ -33,8 +33,8 @@ spring:
           connections:
 
             agent-mcp-server:
-              # MCP Server 的基地址（不带路径）
-              url: http://localhost:8086
+              # ★ D78：容器内用服务名 agent-mcp-server，本地用 localhost
+              url: ${AGENT_MCP_SERVER_URL:http://localhost:8086}
               # MCP 端点路径——和 Server 端 application.yml 的 mcp-endpoint 对齐
               endpoint: /mcp
 

@@ -81,3 +81,15 @@ logging:
   level:
     org.springframework.ai.mcp: DEBUG
     org.example.mcpserver: INFO
+
+# ============================================================
+# D78：RAG 文档存储目录（MCP Server 侧）
+# ------------------------------------------------------------
+# 与 agent-api 的 app.rag.ingest.file-storage-dir 语义对齐。
+# MCP Server 是独立部署单元，不导入 agent-api 的 config/*.yml，
+# 因此这里单独声明。
+# ============================================================
+app:
+  rag:
+    ingest:
+      file-storage-dir: ${RAG_FILE_STORAGE_DIR:./data/rag-files/}

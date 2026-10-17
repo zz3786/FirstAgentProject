@@ -1,0 +1,253 @@
+# ============================================================
+# FirstAgentProject CI（D78-C）
+# ------------------------------------------------------------
+# 触发：
+#   - pull_request → build-test + docker-build（不推镜像）
+#   - push main    → + smoke-test
+#   - push tag v*  → + publish（推 ghcr.io）
+#
+# 必需 Secrets（Settings → Secrets and variables → Actions）：
+#   CI_DEEPSEEK_API_KEY     —— 随便填非空值（骗过 Spring AI 启动校验）
+#   CI_DASHSCOPE_API_KEY    —— 随便填非空值
+# ============================================================
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+# ---------- 并发控制：同分支新 push 取消旧 run ----------
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ---------- 默认最小权限 ----------
+permissions:
+  contents: read
+
+jobs:
+
+  # ============================================================
+  # Job 1：编译 + 单测（PR 主反馈路径）
+  # ============================================================
+  build-test:
+    name: Build & Unit Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build & verify
+        run: mvn -B -ntp clean verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/*'
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jars
+          path: |
+            agent-api/target/*.jar
+            agent-mcp-server/target/*.jar
+          retention-days: 3
+
+  # ============================================================
+  # Job 2：Docker 镜像构建（不推送）
+  # ============================================================
+  docker-build:
+    name: Docker Build (no push)
+    runs-on: ubuntu-latest
+    needs: build-test
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build agent-api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./agent-api/Dockerfile
+          push: false
+          load: true
+          tags: fap/agent-api:ci-${{ github.sha }}
+          cache-from: type=gha,scope=agent-api
+          cache-to: type=gha,mode=max,scope=agent-api
+
+      - name: Build agent-mcp-server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./agent-mcp-server/Dockerfile
+          push: false
+          load: true
+          tags: fap/agent-mcp-server:ci-${{ github.sha }}
+          cache-from: type=gha,scope=mcp-server
+          cache-to: type=gha,mode=max,scope=mcp-server
+
+  # ============================================================
+  # Job 3：Smoke Test（仅 main/tag）
+  # 核心：在云端直接拉起全套 docker-compose 环境！
+  # ============================================================
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: build-test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ★ 准备假 .env——云端没有任何真实环境，用假 Key 骗过启动校验
+      - name: Prepare .env for smoke test
+        run: |
+          cat > .env <<EOF
+          DEEPSEEK_API_KEY=${{ secrets.CI_DEEPSEEK_API_KEY || 'sk-ci-fake-key-for-smoke-test' }}
+          DASHSCOPE_API_KEY=${{ secrets.CI_DASHSCOPE_API_KEY || 'sk-ci-fake-key-for-smoke-test' }}
+          MYSQL_ROOT_PASSWORD=root123456
+          MYSQL_USER=rag
+          MYSQL_PASSWORD=rag123456
+          REDIS_PASSWORD=
+          RABBITMQ_USER=fap
+          RABBITMQ_PASSWORD=fap123456
+          RABBITMQ_VHOST=/fap
+          SPRING_PROFILES_ACTIVE=dev
+          TRACING_SAMPLING=0.0
+          EOF
+
+      # ★ 执行命令，拉起数据层 + 应用层
+      - name: Start core + app
+        run: |
+          docker compose --profile app up -d --build
+          docker compose ps
+
+      # ★ 循环等待 agent-api 变健康
+      - name: Wait for agent-api healthy
+        run: |
+          set -e
+          for i in $(seq 1 60); do
+            status=$(docker inspect --format='{{.State.Health.Status}}' fap-agent-api 2>/dev/null || echo "starting")
+            echo "[$i/60] agent-api health: $status"
+            if [ "$status" = "healthy" ]; then
+              echo "✅ agent-api is healthy"
+              exit 0
+            fi
+            if [ "$status" = "unhealthy" ]; then
+              echo "❌ agent-api unhealthy"
+              docker compose logs agent-api
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "❌ timeout waiting for agent-api"
+          docker compose logs agent-api
+          exit 1
+
+      # ★ 真实发送 HTTP 请求验证
+      - name: Curl health endpoint
+        run: |
+          curl -fsS http://localhost:8080/fap/actuator/health | tee /tmp/health.json
+          grep -q '"status":"UP"' /tmp/health.json || (echo "health not UP" && exit 1)
+
+      - name: Curl MCP server health
+        run: |
+          curl -fsS http://localhost:8086/actuator/health | tee /tmp/mcp-health.json
+          grep -q '"status":"UP"' /tmp/mcp-health.json || (echo "MCP health not UP" && exit 1)
+
+      # ★ 检查启动自检报告里有没有 ❌（工具注册失败）
+      - name: Check tool chain self-check log
+        run: |
+          docker compose logs agent-api | grep -A 20 "工具链启动自检报告" || true
+          if docker compose logs agent-api | grep -q "❌"; then
+            echo "❌ tool chain self-check found failures"
+            exit 1
+          fi
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --tail=500
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose --profile app down -v || true
+
+  # ============================================================
+  # Job 4：发布镜像（仅 tag）
+  # ============================================================
+  publish:
+    name: Publish Images
+    runs-on: ubuntu-latest
+    needs: [build-test, smoke-test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push agent-api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./agent-api/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/agent-api:${{ github.ref_name }}
+          cache-from: type=gha,scope=agent-api
+          cache-to: type=gha,mode=max,scope=agent-api
+
+      - name: Push agent-mcp-server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./agent-mcp-server/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/agent-mcp-server:${{ github.ref_name }}
+          cache-from: type=gha,scope=mcp-server
+          cache-to: type=gha,mode=max,scope=mcp-server

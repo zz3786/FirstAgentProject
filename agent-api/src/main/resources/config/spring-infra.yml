@@ -56,12 +56,14 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # ========== Redis ==========
+  # ========== Redis ==========
   data:
     redis:
-      host: ${REDIS_HOST}
-      database: 0             # 用的 DB 0——生产建议按业务分 DB
-      port: 6379
-      password: hfcx_redis_123456
+      host: ${REDIS_HOST:localhost}
+      database: ${REDIS_DATABASE:0}
+      port: ${REDIS_PORT:6379}
+      # ★ D78：密码必须走环境变量——不留任何明文默认值
+      password: ${REDIS_PASSWORD:}
 
   # ============================================================
   # RabbitMQ 连接配置（Spring Boot 标准前缀）

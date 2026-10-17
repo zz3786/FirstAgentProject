@@ -16,7 +16,7 @@ management:
   # ---------- Zipkin 上报端点 ----------
   zipkin:
     tracing:
-      endpoint: https://www.ahshequ.cn/zipkin/api/v2/spans
+      endpoint: ${ZIPKIN_ENDPOINT:}
 
   # ---------- Actuator 端点 ----------
   endpoints:

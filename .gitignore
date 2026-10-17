@@ -1,52 +1,26 @@
-# ===== Maven =====
-target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+# ============================================================
+# D78：敏感信息与构建产物排除
+# ============================================================
+.env
+.env.local
+*.log
 
-# ===== IntelliJ IDEA（整个目录忽略）=====
+# IDE
 .idea/
-*.iws
 *.iml
-*.ipr
-
-# ===== Eclipse =====
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-
-# ===== NetBeans =====
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-# ===== VS Code =====
 .vscode/
 
-# ===== Mac OS =====
-.DS_Store
+# 构建产物
+target/
+build/
 
-# ===== Kotlin =====
-.kotlin/
-
-# ===== 日志 =====
-*.log
+# 运行时数据
+data/
 logs/
 
-# ===== 本地配置（含密钥/本机路径，坚决不提交）=====
-application-local.yml
-application-dev.yml
-*.local.yml
+# 测试
+*.class
 
-# ===== 数据/临时文件 =====
-data/
-*.tmp
+# CI 报告
+**/target/surefire-reports/
+**/target/failsafe-reports/

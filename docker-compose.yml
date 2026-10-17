@@ -1,0 +1,242 @@
+# ============================================================
+# FirstAgentProject docker-compose (清爽版)
+# ============================================================
+name: fap
+
+services:
+
+  # ---------- MySQL 5.7.44 ----------
+  mysql:
+    image: mysql:5.7.44
+    container_name: fap-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb_large_prefix=ON
+      - --innodb_file_format=Barracuda
+      - --innodb_file_per_table=ON
+      - --bind-address=0.0.0.0
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------- Redis Stack Server ----------
+  redis:
+    image: redis/redis-stack-server:7.4.0-v8
+    container_name: fap-redis
+    environment:
+      # 如果你在 .env 配了密码，这句会自动变成 --requirepass Fap@Redis123
+      REDIS_ARGS: --requirepass ${REDIS_PASSWORD}
+      TZ: Asia/Shanghai
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------- Qdrant ----------
+  qdrant:
+    image: qdrant/qdrant:v1.13.0
+    container_name: fap-qdrant
+    ports:
+      - "${QDRANT_PORT}:6333"
+      - "6334:6334"
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+      QDRANT__LOG_LEVEL: INFO
+      TZ: Asia/Shanghai
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------- RabbitMQ ----------
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: fap-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+      TZ: Asia/Shanghai
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------- Zipkin ----------
+  zipkin:
+    image: openzipkin/zipkin:3.6.1
+    container_name: fap-zipkin
+    profiles: ["observability"]
+    ports:
+      - "9411:9411"
+    environment:
+      ZIPKIN_UI_BASEPATH: /zipkin
+      STORAGE_TYPE: mysql
+      MYSQL_HOST: mysql
+      MYSQL_TCP_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASS: ${MYSQL_PASSWORD}
+      MYSQL_DB: zipkin
+      MYSQL_JDBC_URL: jdbc:mysql://mysql:3306/zipkin?autoReconnect=true&useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------- TEI Rerank ----------
+  tei-rerank:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    container_name: fap-tei-rerank
+    profiles: ["rerank"]
+    command:
+      - --model-id
+      - BAAI/bge-reranker-v2-m3
+      - --max-client-batch-size
+      - "32"
+      - --max-batch-tokens
+      - "16384"
+    ports:
+      - "${TEI_PORT:-8081}:80"
+    volumes:
+      - tei-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:80/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+    restart: unless-stopped
+
+  # ---------- MCP Server ----------
+  agent-mcp-server:
+    build:
+      context: .
+      dockerfile: agent-mcp-server/Dockerfile
+    image: fap/agent-mcp-server:${FAP_VERSION:-1.0.0}
+    container_name: fap-agent-mcp-server
+    profiles: ["app"]
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      RAG_FILE_STORAGE_DIR: /app/data/rag-files
+      APP_LOG_HOME: /app/logs
+      TZ: Asia/Shanghai
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError -Djava.security.egd=file:/dev/./urandom -Duser.timezone=Asia/Shanghai
+    ports:
+      - "${MCP_SERVER_PORT:-8086}:8086"
+    volumes:
+      - rag-files:/app/data/rag-files
+      - agent-logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8086/actuator/health | grep UP || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------- Agent API ----------
+  agent-api:
+    build:
+      context: .
+      dockerfile: agent-api/Dockerfile
+    image: fap/agent-api:${FAP_VERSION:-1.0.0}
+    container_name: fap-agent-api
+    profiles: ["app"]
+    depends_on:
+      mysql:      {condition: service_healthy}
+      redis:      {condition: service_healthy}
+      qdrant:     {condition: service_healthy}
+      rabbitmq:   {condition: service_healthy}
+      agent-mcp-server: {condition: service_healthy}
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      # 数据源（这里直接引用 .env 里的值）
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      # LLM
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      # RAG
+      RAG_FILE_STORAGE_DIR: /app/data/rag-files
+      RAG_LISTEN_FILES_DIR: /app/data/testVectorData
+      RAG_INCREMENTAL_ENABLED: ${RAG_INCREMENTAL_ENABLED:-true}
+      RAG_SCAN_INTERVAL_MS: ${RAG_SCAN_INTERVAL_MS:-60000}
+      TEI_RERANK_URL: ${TEI_RERANK_URL:-http://tei-rerank:80/rerank}
+      # MCP Server
+      AGENT_MCP_SERVER_URL: http://agent-mcp-server:8086
+      # 观测
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING:-0.1}
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: ${ZIPKIN_ENDPOINT:-http://zipkin:9411/api/v2/spans}
+      # 日志与 JVM
+      APP_LOG_HOME: /app/logs
+      TZ: Asia/Shanghai
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError -Djava.security.egd=file:/dev/./urandom -Duser.timezone=Asia/Shanghai
+    ports:
+      - "${AGENT_API_PORT:-8080}:8080"
+    volumes:
+      - rag-files:/app/data/rag-files
+      - agent-logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8080/fap/actuator/health | grep UP || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  redis-data:
+  qdrant-data:
+  rabbitmq-data:
+  tei-data:
+  rag-files:
+  agent-logs:
