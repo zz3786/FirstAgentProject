@@ -7,14 +7,23 @@
 FROM maven:3.9.9-eclipse-temurin-21 AS builder
 WORKDIR /build
 
+# ★ 关键修复：把 11 个模块的 pom.xml 全部 COPY 进去，保证 Maven 解析父 POM 不报错
 COPY pom.xml ./
 COPY agent-common/pom.xml           agent-common/
 COPY agent-tool-registry/pom.xml    agent-tool-registry/
 COPY agent-tools/pom.xml            agent-tools/
+COPY agent-cache/pom.xml            agent-cache/
+COPY agent-memory/pom.xml           agent-memory/
+COPY agent-rag/pom.xml              agent-rag/
+COPY agent-core/pom.xml             agent-core/
+COPY agent-observability/pom.xml    agent-observability/
+COPY agent-multi-agent/pom.xml      agent-multi-agent/
+COPY agent-api/pom.xml              agent-api/
 COPY agent-mcp-server/pom.xml       agent-mcp-server/
 
 RUN mvn -B -q dependency:go-offline -DskipTests || true
 
+# ★ 源码可以只 COPY mcp-server 及其真正依赖的模块（不需要的模块不用拷，省时间）
 COPY agent-common/src           agent-common/src
 COPY agent-tool-registry/src    agent-tool-registry/src
 COPY agent-tools/src            agent-tools/src
