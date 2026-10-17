@@ -86,33 +86,34 @@ public class ParamOwnershipValidator {
 
     /**
      * 从订单号推断归属租户。
-     * <ul>
-     *   <li>4 位数字 → null（公共）</li>
-     *   <li>5 位、首位 1 → hospital-a</li>
-     *   <li>5 位、首位 2 → hospital-b</li>
-     *   <li>其他 → null（公共，兜底）</li>
-     * </ul>
+     *
+     * <h3>修复说明</h3>
+     * 以前只要不是纯数字就直接 return null（放行）。
+     * 导致传入 "B10001"（hospital-b的订单）时，被当作公共订单，发生越权。
+     * 现在严格校验格式：
+     * 1. 如果是 5 位纯数字：首位 1 -> hospital-a，首位 2 -> hospital-b。
+     * 2. 如果是 1位字母+5位数字：A -> hospital-a，B -> hospital-b。
+     * 3. 其他（如 4 位数字） -> 视为公共订单放行。
      */
     private String inferTenantFromOrderId(String orderId) {
-        if (orderId == null || !orderId.matches("\\d+")) {
+        if (orderId == null || orderId.isBlank()) {
             return null;
         }
-        if (orderId.length() == 5) {
-            if (orderId.startsWith("1")) {
-                return "hospital-a";
-            }
-            if (orderId.startsWith("2")) {
-                return "hospital-b";
-            }
+
+        // ① 匹配纯数字（5位）
+        if (orderId.matches("^\\d{5}$")) {
+            if (orderId.startsWith("1")) return "hospital-a";
+            if (orderId.startsWith("2")) return "hospital-b";
         }
-        if (orderId.length() == 6) {
-            if (orderId.startsWith("A")) {
-                return "hospital-a";
-            }
-            if (orderId.startsWith("B")) {
-                return "hospital-b";
-            }
+
+        // ② 匹配字母前缀（如 A10001, B10001）
+        if (orderId.matches("^[a-zA-Z]\\d{5}$")) {
+            String prefix = orderId.substring(0, 1).toUpperCase();
+            if ("A".equals(prefix)) return "hospital-a";
+            if ("B".equals(prefix)) return "hospital-b";
         }
+
+        // 其他未识别格式（如 1001、9999），保守当作公共订单放行
         return null;
     }
 

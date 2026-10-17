@@ -28,8 +28,6 @@
         <module>agent-multi-agent</module>
         <module>agent-api</module>
         <module>agent-mcp-server</module>
-
-
     </modules>
 
     <properties>

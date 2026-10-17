@@ -35,9 +35,9 @@ app:
       # 融合策略：weighted（加权）/ rrf（倒数排名融合）
       fusion-strategy: weighted
       # 向量权重（weighted 策略用）
-      vector-weight: 0.7
+      vector-weight: 0.5
       # 关键词权重（weighted 策略用）
-      keyword-weight: 0.3
+      keyword-weight: 0.5
 
   # ========== OCR 图片文字识别 ==========
   ocr:
@@ -60,7 +60,7 @@ app:
   clarification:
     enabled: true
     # 最高 rerank 分低于此值 → 判定为"模糊"
-    min-top-score: 0.5
+    min-top-score: 0.7
     # 高分文档数少于此值 → 也判定"模糊"
     min-qualified-docs: 2
 
