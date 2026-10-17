@@ -1,5 +1,7 @@
 package org.example.api.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.example.api.common.ApiResponse;
@@ -17,6 +19,7 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/hitl")
+@Tag(name = "人工介入 (HITL)", description = "挂起任务的审批、驳回与修改") // ★
 public class HitlController {
 
     @Resource
@@ -29,6 +32,7 @@ public class HitlController {
      * 列出待处理任务
      */
     @GetMapping("/pending")
+    @Operation(summary = "列出待处理任务", description = "获取所有 PENDING 状态的审批任务") // ★
     public ApiResponse<List<HitlTask>> listPending() {
         return ApiResponse.ok(hitlService.listPending());
     }
@@ -45,6 +49,7 @@ public class HitlController {
      * 批准 + 自动恢复工作流
      */
     @PostMapping("/task/{taskId}/approve")
+    @Operation(summary = "批准任务", description = "批准后自动恢复挂起的工作流") // ★
     public ApiResponse<Map<String, Object>> approve(
             @PathVariable String taskId,
             @RequestBody(required = false) DecisionBody body) {

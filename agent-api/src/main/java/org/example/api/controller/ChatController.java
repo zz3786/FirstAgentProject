@@ -1,5 +1,8 @@
 package org.example.api.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +32,7 @@ import java.util.List;
 @Slf4j
 @RestController
 @RequestMapping("chat")
+@Tag(name = "对话管理", description = "包含同步对话、流式对话、带记忆流式对话等核心接口") // ★ D79 新增
 public class ChatController {
 
     @Resource
@@ -63,14 +67,16 @@ public class ChatController {
      * 出错时 ChatService 内部用 onErrorResume 转成 "⚠️ ..." 文本，仍走流式
      */
     @GetMapping(value = "streamR", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "流式对话 (带记忆与工具)", description = "主入口：支持会话记忆、工具调用、RAG 检索、多租户隔离")
     public Flux<String> streamR(
-            @RequestParam String message,
-            @RequestParam(required = false) String sessionId,
-            @RequestParam(required = false) List<String> departments,
-            @RequestParam(required = false) Integer yearFrom,
-            @RequestParam(required = false) List<String> docTypes,
-            @RequestParam(required = false, defaultValue = "false") Boolean includeArchived,
-            HttpServletRequest request) {
+            @Parameter(description = "提问内容", example = "查一下订单1001") @RequestParam String message,
+            @Parameter(description = "会话ID", example = "sess-123") @RequestParam(required = false) String sessionId,
+            @Parameter(description = "部门过滤") @RequestParam(required = false) List<String> departments,
+            @Parameter(description = "年份起") @RequestParam(required = false) Integer yearFrom,
+            @Parameter(description = "文档类型") @RequestParam(required = false) List<String> docTypes,
+            @Parameter(description = "是否包含归档") @RequestParam(required = false, defaultValue = "false") Boolean includeArchived,
+            // ★ 重点：隐藏 Servlet 对象，不然 Swagger 解析报错
+            @Parameter(hidden = true) HttpServletRequest request) {
 
         // ============ ★ D54：租户 + 完整 userId ============
         String tenantId = TenantRequestUtils.getTenantId(request);
@@ -123,9 +129,10 @@ public class ChatController {
     }
 
     @PostMapping("clear")
+    @Operation(summary = "清空记忆", description = "彻底清除该会话的短期和长期记忆")
     public ApiResponse<Void> clear(
-            @RequestParam(required = false) String sessionId,
-            HttpServletRequest request) {
+            @Parameter(description = "会话ID") @RequestParam(required = false) String sessionId,
+            @Parameter(hidden = true) HttpServletRequest request) {
 
         String tenantId = TenantRequestUtils.getTenantId(request);
         String fullUserId = TenantRequestUtils.fullUserId(request);

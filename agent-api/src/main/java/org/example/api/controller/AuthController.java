@@ -1,5 +1,6 @@
 package org.example.api.controller;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.example.common.audit.AuditLogger;
@@ -13,6 +14,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/auth")
+@Tag(name = "认证管理", description = "登录、获取用户信息、登出") // ★ D79 新增
 public class AuthController {
 
     /** 邀请码 → userId */

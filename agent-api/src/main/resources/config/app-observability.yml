@@ -80,3 +80,18 @@ app:
 
       # 是否记录工具调用成功/失败 tag
       record-tool-outcome: true
+
+# ============================================================
+# D79：接口文档配置
+# ============================================================
+springdoc:
+  # 是否开启 API 文档（生产环境建议设为 false，dev 环境为 true）
+  api-docs:
+    enabled: true
+  swagger-ui:
+    # 访问路径：http://localhost:8080/fap/swagger-ui/index.html
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  # 默认的包扫描路径
+  packages-to-scan: org.example.api.controller

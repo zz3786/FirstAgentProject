@@ -1,5 +1,8 @@
 package org.example.api.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 @Slf4j
 @RestController
 @RequestMapping("/agent/plan")
+@Tag(name = "计划和执行", description = "把需求分解成每步计划然后选择工具执行（规划--执行--汇总）") // ★
 public class PlanController {
 
     @Resource
@@ -31,6 +35,7 @@ public class PlanController {
      * </pre>
      */
     @PostMapping("/execute")
+    @Operation(summary = "计划执入口", description = "输入问题，调用LLM解析，并行处理并汇总结果")
     public ApiResponse<PlanResult> execute(@RequestBody Body body,
                                            HttpServletRequest request) {
         String tenantId = TenantRequestUtils.getTenantId(request);
@@ -50,5 +55,9 @@ public class PlanController {
     }
 
     /** 请求体 */
-    public record Body(String userInput, String sessionId) {}
+    @Schema(description = "用户输入信息体") // ★ 可以用 Schema 描述 DTO
+    public record Body(
+            @Schema(description = "用户输入需求", example = "帮我计算123+345是多少，456*789=？") String userInput,
+            @Schema(description = "会话ID", example = "")String sessionId
+    ) {}
 }

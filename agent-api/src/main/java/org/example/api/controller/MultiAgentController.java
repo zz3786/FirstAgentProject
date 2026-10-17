@@ -1,5 +1,8 @@
 package org.example.api.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.example.api.common.ApiResponse;
@@ -37,6 +40,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/multiagent")
 @Profile("dev")
+@Tag(name = "多智能体协作", description = "主管 Agent 拆解任务，分发给财务/技术/法务 Worker")
 public class MultiAgentController {
 
     @Resource
@@ -67,6 +71,7 @@ public class MultiAgentController {
      * </pre>
      */
     @PostMapping("/execute")
+    @Operation(summary = "触发多 Agent 协作", description = "输入复杂问题，系统会调用多个 Worker 并行处理并汇总结果")
     public ApiResponse<Map<String, Object>> execute(
             @RequestBody Body body,
             HttpServletRequest request) {
@@ -118,5 +123,6 @@ public class MultiAgentController {
     }
 
     /** 请求体 */
-    public record Body(String input) {}
+    @Schema(description = "多智能体请求体") // ★ 可以用 Schema 描述 DTO
+    public record Body(@Schema(description = "复杂的评估需求", example = "我们准备上线一个用户数据分析系统，请评估可行性") String input) {}
 }
