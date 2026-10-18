@@ -24,3 +24,6 @@ logs/
 # CI 报告
 **/target/surefire-reports/
 **/target/failsafe-reports/
+
+productionDoc
+logs

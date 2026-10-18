@@ -1,6 +1,8 @@
 package org.example.api.config;
 
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.example.api.interceptor.SecurityInterceptor;
 import org.example.observability.tracing.TraceContextTaskDecorator;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -8,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.util.concurrent.ThreadPoolExecutor;
@@ -37,11 +40,26 @@ import java.util.concurrent.ThreadPoolExecutor;
 @Configuration
 public class WebMvcAsyncConfig implements WebMvcConfigurer {
 
+    @Resource
+    private SecurityInterceptor securityInterceptor;
+
     private final ThreadPoolTaskExecutor sseTaskExecutor;
 
     public WebMvcAsyncConfig(
             @Qualifier("sseTaskExecutor") ThreadPoolTaskExecutor sseTaskExecutor) {
         this.sseTaskExecutor = sseTaskExecutor;
+    }
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(securityInterceptor)
+                .addPathPatterns("/**") // 拦截所有请求
+                .excludePathPatterns(
+                        "/auth/login",
+                        "/actuator/**",
+                        "/swagger-ui/**",
+                        "/v3/api-docs/**"
+                ); // 排除登录、监控、文档页面
     }
 
     @Bean("sseTaskExecutor")

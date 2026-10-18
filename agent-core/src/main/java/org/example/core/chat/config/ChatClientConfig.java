@@ -1,5 +1,6 @@
 package org.example.core.chat.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.example.advisor.*;
 import org.example.core.chat.advisor.DebugPromptAdvisor;
 import org.example.core.chat.advisor.ToolLoggingAdvisor;
@@ -10,6 +11,7 @@ import org.example.rag.retrieval.advisor.RagAdvisor;
 import org.example.rag.retrieval.service.HybridSearchService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.SafeGuardAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.ObjectProvider;
@@ -17,12 +19,15 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.List;
+
 /**
  * ChatClient 装配配置
  * <p>
  * 把「ChatClient 的构建」从 Service 层抽到配置层，
  * Service 只负责注入现成的 Client，专注业务逻辑。
  */
+@Slf4j
 @Configuration
 public class ChatClientConfig {
 
@@ -40,16 +45,7 @@ public class ChatClientConfig {
     }
 
     /**
-     * 主业务 Client：带记忆 + 压缩 + 偏好 + 长期记忆检索 + 工具日志
-     * <p>
-     * Advisor 执行顺序由 getOrder() 决定：
-     * <ol>
-     *     <li>MessageChatMemoryAdvisor（order 极小）</li>
-     *     <li>CompactingChatMemoryAdvisor（order=50）</li>
-     *     <li>PreferenceAdvisor（order=100）</li>
-     *     <li>MemoryRetrievalAdvisor（order=200）</li>
-     *     <li>ToolLoggingAdvisor</li>
-     * </ol>
+     * 主业务 Client：带安全防护 + 记忆 + 压缩 + 偏好 + 长期记忆检索 + 工具日志
      */
     @Bean("redisChatClient")
     public ChatClient redisChatClient(
@@ -62,39 +58,55 @@ public class ChatClientConfig {
             ConversationRetrievalAdvisor conversationRetrievalAdvisor,
             ConversationMemoryAdvisor conversationMemoryAdvisor,
             UserInterestAdvisor userInterestAdvisor,
-            ObjectProvider<TracingAdvisor> tracingAdvisorProvider) {   // ★ 新增
+            ObjectProvider<TracingAdvisor> tracingAdvisorProvider) {
 
-        // ★ D77：TracingAdvisor 可能不存在（依赖缺失时）——可选注入
         TracingAdvisor tracingAdvisor = tracingAdvisorProvider.getIfAvailable();
 
-        // ★ 临时调试——看 Advisor 到底有没有拿到
-        System.out.println(">>> [ChatClientConfig] tracingAdvisor = " + tracingAdvisor
-                + " (class=" + (tracingAdvisor == null ? "null" : tracingAdvisor.getClass().getSimpleName()) + ")");
+        // ★ 1. 初始化安全防护 Advisor（生产环境请替换为实际的违规词库或从 yml 读取）
+        // 默认拦截提示词为："I'm unable to respond to that."
+        // 这里你可以自定义拦截后返回给用户的友好提示
+        SafeGuardAdvisor safeGuardAdvisor = new SafeGuardAdvisor(
+                List.of("暴力", "色情", "政治", "忽略之前的指令", "ignore previous instructions")
+        );
 
-        // 构造 Advisor 数组——根据 tracingAdvisor 是否存在动态决定
+        log.info("[ChatClientConfig] 已装配 SafeGuardAdvisor 安全拦截");
+
         return ChatClient.builder(chatModel)
                 .defaultAdvisors(
-                        // ① D77：TracingAdvisor——最外层
+                        // ① D81：安全防护——必须在最外层，违规输入直接短路，不消耗后续 Token
+                        safeGuardAdvisor,
+
+                        // ② D77：TracingAdvisor——链路追踪
                         tracingAdvisor != null ? tracingAdvisor : noopAdvisor(),
-                        // ② 会话记忆
+
+                        // ③ 会话记忆
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
-                        // ③ 压缩
+
+                        // ④ 压缩
                         compactingAdvisor,
-                        // ④ 用户偏好
+
+                        // ⑤ 用户偏好
                         new PreferenceAdvisor(preferenceService),
-                        // ⑤ 用户画像
+
+                        // ⑥ 用户画像
                         userInterestAdvisor,
-                        // ⑥ RAG 检索
+
+                        // ⑦ RAG 检索
                         new RagAdvisor(hybridSearchService),
-                        // ⑦ LTM 关键词路
+
+                        // ⑧ LTM 关键词路
                         new LongTermMemoryAdvisor(longTermMemoryService),
-                        // ⑧ 对话历史向量路
+
+                        // ⑨ 对话历史向量路
                         conversationRetrievalAdvisor,
-                        // ⑨ 工具日志
+
+                        // ⑩ 工具日志
                         new ToolLoggingAdvisor(),
-                        // ⑩ 对话历史写入
+
+                        // ⑪ 对话历史写入
                         conversationMemoryAdvisor,
-                        // ⑪ 提示词日志
+
+                        // ⑫ 提示词日志
                         new DebugPromptAdvisor()
                 )
                 .build();
