@@ -22,7 +22,7 @@ spring:
         # API Key 从环境变量读——不要硬编码
         api-key: ${DEEPSEEK_API_KEY}
         options:
-          model: deepseek-v4-pro
+          model: deepseek-flash  #deepseek-v4-pro
 
       # ========== Embedding 模型（阿里云百炼）==========
       embedding:
@@ -34,6 +34,11 @@ spring:
           model: text-embedding-v4
           # 维度必须和后续检索的向量库对齐——改这里要重建索引
           dimensions: 1024
+
+    # ★ 关键：覆盖 Spring AI 默认的重试策略，失败立刻抛出异常，走我们的降级代码
+    retry:
+      max-attempts: 1
+      on-client-errors: false
 
     # ========== Qdrant 向量库 ==========
     vectorstore:
